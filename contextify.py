@@ -297,7 +297,7 @@ Format your response as a complete, copy-paste ready prompt."""
 
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
     
     def generate_prompt(self, user_request: str, context: Dict) -> str:
         """Generate refined prompt using Gemini."""
