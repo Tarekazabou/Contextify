@@ -21,14 +21,15 @@ Contextify uses **Gemini's massive context window** (1M+ tokens) to:
 
 ## Installation
 
+### Linux/Mac
 ```bash
 # Clone or download this tool
 git clone <your-repo-url>
 cd contextify
 
 # Run the installation script
-chmod +x install.sh
-./install.sh
+chmod +x scripts/install.sh
+./scripts/install.sh
 
 # Set your Gemini API key (get one from https://makersuite.google.com/app/apikey)
 export GEMINI_API_KEY='your-api-key-here'
@@ -36,6 +37,23 @@ export GEMINI_API_KEY='your-api-key-here'
 # Add to your shell config to make it permanent
 echo 'export GEMINI_API_KEY="your-api-key-here"' >> ~/.bashrc
 ```
+
+### Windows
+```powershell
+# Open PowerShell in the contextify folder
+cd contextify
+
+# Run the setup script
+.\scripts\setup.ps1
+
+# Set your Gemini API key
+$env:GEMINI_API_KEY='your-api-key-here'
+
+# Use contextify
+.\scripts\contextify.bat "add a dark mode toggle"
+```
+
+For detailed Windows setup, see [docs/WINDOWS.md](docs/WINDOWS.md)
 
 ## Quick Start
 
@@ -52,6 +70,40 @@ contextify "fix the login bug" --changed
 # Save to file instead of clipboard
 contextify "refactor authentication" --output prompt.md
 ```
+
+## 📁 Project Structure
+
+```
+contextify/
+├── README.md                    # Main documentation (you are here)
+├── LICENSE                      # MIT License
+├── requirements.txt             # Python dependencies
+├── contextify.py                # Main CLI application
+│
+├── docs/                        # Documentation
+│   ├── QUICKSTART.md           # 3-step quick start guide
+│   ├── EXAMPLES.md             # 10+ real-world usage examples
+│   ├── WINDOWS.md              # Windows-specific installation guide
+│   └── CONTRIBUTING.md         # Contribution guidelines
+│
+├── scripts/                     # Installation & launcher scripts
+│   ├── install.sh              # Linux/Mac installation
+│   ├── install.ps1             # Windows detailed installation
+│   ├── setup.ps1               # Windows quick setup
+│   └── contextify.bat          # Windows batch launcher
+│
+├── tests/                       # Test suite
+│   └── simple_test.py          # Core logic tests
+│
+└── examples/                    # Configuration examples
+    └── .env.example            # Environment variables template
+```
+
+**Get Started:**
+- New users: Start with [docs/QUICKSTART.md](docs/QUICKSTART.md)
+- Need examples? Check [docs/EXAMPLES.md](docs/EXAMPLES.md)
+- Windows user? See [docs/WINDOWS.md](docs/WINDOWS.md)
+- Want to contribute? Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ## Features
 
