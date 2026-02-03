@@ -1,6 +1,18 @@
 # 🌉 Contextify - The Context Bridge for AI Coders
 
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/yourusername/contextify)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+
 **Contextify** transforms vague coding requests into detailed, context-aware prompts that get you working code on the first try.
+
+## ✨ What's New in v1.1.0
+
+- 🔐 **Auto-load `.env` files** - No more manual environment variable setup!
+- 🎯 **Dry-run mode** (`--dry-run`) - Preview context without API calls
+- 🎨 **Progress spinners** - Beautiful visual feedback during processing
+- 📊 **Version flag** (`--version`) - Check your Contextify version
+- 🚀 **Better UX** - Smoother workflow, clearer messages
 
 ## The Problem
 
@@ -21,33 +33,34 @@ Contextify uses **Gemini's massive context window** (1M+ tokens) to:
 
 ## Installation
 
-### Linux/Mac
+### Quick Start (Recommended)
+
+**1. Clone the repository:**
 ```bash
-# Clone or download this tool
 git clone <your-repo-url>
 cd contextify
+```
 
-# Run the installation script
+**2. Create a `.env` file in the project root:**
+```bash
+echo "GEMINI_API_KEY=your-api-key-here" > .env
+```
+Get your free API key from: https://aistudio.google.com/app/apikey
+
+**3. Run the installation script:**
+
+### Linux/Mac
+```bash
 chmod +x scripts/install.sh
 ./scripts/install.sh
-
-# Set your Gemini API key (get one from https://makersuite.google.com/app/apikey)
-export GEMINI_API_KEY='your-api-key-here'
-
-# Add to your shell config to make it permanent
-echo 'export GEMINI_API_KEY="your-api-key-here"' >> ~/.bashrc
 ```
 
 ### Windows
 ```powershell
-# Open PowerShell in the contextify folder
-cd contextify
-
-# Run the setup script
 .\scripts\setup.ps1
+```
 
-# Set your Gemini API key
-$env:GEMINI_API_KEY='your-api-key-here'
+**That's it!** The `.env` file will be automatically loaded.
 
 # Use contextify
 .\scripts\contextify.bat "add a dark mode toggle"
@@ -107,7 +120,30 @@ contextify/
 
 ## Features
 
-### 🎯 Intelligent Context Selection
+### � New in v1.1.0
+
+**Auto-load `.env` files:**
+```bash
+# Just create a .env file with your API key
+echo "GEMINI_API_KEY=your-key" > .env
+
+# Contextify automatically loads it!
+contextify "your request"
+```
+
+**Dry-run mode for debugging:**
+```bash
+contextify "add dark mode" --dry-run
+# Shows exactly what context will be sent (no API call, no cost)
+```
+
+**Check your version:**
+```bash
+contextify --version
+# Output: contextify.py 1.1.0
+```
+
+### �🎯 Intelligent Context Selection
 
 Use `--focus` to scan only relevant parts of your codebase:
 
