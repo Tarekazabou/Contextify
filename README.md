@@ -1,6 +1,6 @@
 # 🌉 Contextify - The Context Bridge for AI Coders
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/yourusername/contextify)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/Tarekazabou/Contextify)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
@@ -37,8 +37,8 @@ Contextify uses **Gemini's massive context window** (1M+ tokens) to:
 
 **1. Clone the repository:**
 ```bash
-git clone <your-repo-url>
-cd contextify
+git clone https://github.com/Tarekazabou/Contextify.git
+cd Contextify
 ```
 
 **2. Create a `.env` file in the project root:**
@@ -62,7 +62,7 @@ chmod +x scripts/install.sh
 
 **That's it!** The `.env` file will be automatically loaded.
 
-# Use contextify
+### Use Contextify (Windows example)
 ```powershell
 .\scripts\contextify.bat "add a dark mode toggle"
 ```
@@ -97,17 +97,18 @@ contextify "fix the build error" --git-aware
 ## 📁 Project Structure
 
 ```
-contextify/
+Contextify/
 ├── README.md                    # Main documentation (you are here)
 ├── LICENSE                      # MIT License
 ├── requirements.txt             # Python dependencies
 ├── contextify.py                # Main CLI application
 │
 ├── docs/                        # Documentation
-│   ├── QUICKSTART.md           # 3-step quick start guide
-│   ├── EXAMPLES.md             # 10+ real-world usage examples
-│   ├── WINDOWS.md              # Windows-specific installation guide
-│   └── CONTRIBUTING.md         # Contribution guidelines
+│   ├── README.md                # Documentation landing page
+│   ├── QUICKSTART.md            # 3-step quick start guide
+│   ├── EXAMPLES.md              # 10+ real-world usage examples
+│   ├── WINDOWS.md               # Windows-specific installation guide
+│   └── CONTRIBUTING.md          # Contribution guidelines
 │
 ├── scripts/                     # Installation & launcher scripts
 │   ├── install.sh              # Linux/Mac installation
@@ -127,6 +128,7 @@ contextify/
 - Need examples? Check [docs/EXAMPLES.md](docs/EXAMPLES.md)
 - Windows user? See [docs/WINDOWS.md](docs/WINDOWS.md)
 - Want to contribute? Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
+- All flags explained: See [docs/FLAGS.md](docs/FLAGS.md)
 
 ## Features
 
