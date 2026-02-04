@@ -13,6 +13,8 @@ import argparse
 import pathspec
 import threading
 import time
+import requests
+import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 import pyperclip
@@ -28,6 +30,11 @@ except ImportError:
     print("Error: google-generativeai package not found.")
     print("Install it with: pip install google-generativeai")
     sys.exit(1)
+
+try:
+    import jwt
+except ImportError:
+    jwt = None
 
 # Version
 __version__ = "1.1.0"
@@ -669,90 +676,341 @@ class ContextGatherer:
         return "\n".join(output) if output else "// Skeleton unavailable"
 
 
-class PromptGenerator:
-    """Generates refined prompts using Gemini."""
+class PromptProvider:
+    """Abstract base class for AI prompt generation providers."""
     
-    SYSTEM_PROMPT = """You are an expert Prompt Engineer for AI Coding Assistants (GitHub Copilot, Cursor, etc.).
+    def generate_prompt(self, system_prompt: str, user_request: str, context: str, temperature: float = 0.7) -> str:
+        """Generate a refined prompt using the provider's model."""
+        raise NotImplementedError
 
-Your goal is to take a vague user request and the provided codebase context, and write a highly detailed, 
-perfect prompt that the user can paste into their AI coding assistant to get working code on the first try.
 
-IMPORTANT: Do not write the code yourself; write the prompt FOR the code.
-
-The prompt you generate should:
-1. Act as instructions for an AI coder (e.g., "Act as a Senior React Developer...")
-2. Include all relevant context from the codebase
-3. Reference specific files, interfaces, and components
-4. Match the existing code style and patterns
-5. Be specific about requirements and constraints
-6. Include any relevant code snippets inline for reference
-
-Format your response as a complete, copy-paste ready prompt."""
-
-    def __init__(self, api_key: str, model_name: str = 'gemini-2.5-flash', temperature: float = 0.7):
+class GeminiProvider(PromptProvider):
+    """Provider for Google Gemini API."""
+    
+    def __init__(self, api_key: str, model_name: str = 'gemini-2.5-flash'):
+        self.api_key = api_key
+        self.model_name = model_name
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name)
-        self.temperature = temperature
     
-    def generate_prompt(self, user_request: str, context: Dict, include_file_contents: bool = True) -> str:
+    def generate_prompt(self, system_prompt: str, user_request: str, context: str, temperature: float = 0.7) -> str:
         """Generate refined prompt using Gemini."""
-        
-        # Build context message
-        context_parts = [
-            "# Codebase Context\n",
-        ]
-
-        if not context.get('no_tree'):
-            context_parts.append(f"## Project Structure\n{context['file_tree']}\n")
-        
-        if context.get('style') and not context.get('no_style'):
-            style_desc = []
-            for key, value in context['style'].items():
-                if value:
-                    if isinstance(value, list):
-                        style_desc.append(f"- {key.title()}: {', '.join(value)}")
-                    else:
-                        style_desc.append(f"- {key.title()}: {value}")
-            
-            if style_desc:
-                context_parts.append("## Detected Code Style\n" + "\n".join(style_desc) + "\n")
-        
-        if context.get('git_clues'):
-            clues = "\n".join([f"- {p}" for p in context['git_clues']])
-            context_parts.append("## Contextual Clues (Git Activity)\n" + clues + "\n")
-
-        if context.get('hard_lock'):
-            constraints = "\n".join([f"- {c}" for c in context['hard_lock']])
-            context_parts.append("## Environment Constraints (Strict)\n" + constraints + "\n")
-
-        if context.get('negative_constraints'):
-            negatives = "\n".join([f"- {c}" for c in context['negative_constraints']])
-            context_parts.append("## Negative Constraints\n" + negatives + "\n")
-
-        if include_file_contents and context['files']:
-            context_parts.append(f"\n## Relevant Files ({len(context['files'])} files)\n")
-            for file_data in context['files']:
-                context_parts.append(f"\n### {file_data['path']}\n```\n{file_data['content']}\n```\n")
-        
-        full_context = "\n".join(context_parts)
-        
-        # Generate prompt
-        prompt = f"""{self.SYSTEM_PROMPT}
+        prompt = f"""{system_prompt}
 
 User Request: "{user_request}"
 
-{full_context}
+{context}
 
 Now generate a detailed prompt for an AI coding assistant that will help them implement this request perfectly."""
 
         try:
             response = self.model.generate_content(
                 prompt,
-                generation_config=genai.types.GenerationConfig(temperature=self.temperature)
+                generation_config=genai.types.GenerationConfig(temperature=temperature)
             )
             return response.text
         except Exception as e:
-            return f"Error generating prompt: {e}\n\nContext gathered:\n{full_context}"
+            return f"Error generating prompt: {e}\n\nContext gathered:\n{context}"
+
+
+class GitHubCopilotProvider(PromptProvider):
+    """Provider for GitHub Copilot API."""
+    
+    GITHUB_DEVICE_AUTH_URL = "https://github.com/login/device/code"
+    GITHUB_DEVICE_TOKEN_URL = "https://github.com/login/oauth/access_token"
+    COPILOT_API_URL = "https://api.githubcopilot.com"
+    
+    def __init__(self, github_token: Optional[str] = None):
+        self.github_token = github_token
+        if not github_token:
+            self.github_token = self._authenticate()
+        if not self.github_token:
+            raise ValueError("GitHub Copilot authentication failed")
+    
+    def _authenticate(self) -> Optional[str]:
+        """Perform GitHub device flow authentication."""
+        try:
+            # Step 1: Request device code
+            print("\n[GitHub Copilot Authentication]")
+            print("=" * 60)
+            
+            device_response = requests.post(
+                self.GITHUB_DEVICE_AUTH_URL,
+                headers={"Accept": "application/json"},
+                json={"client_id": "Iv1.b507a08c87ecfe98"},  # GitHub Copilot client ID
+                timeout=10
+            )
+            device_response.raise_for_status()
+            device_data = device_response.json()
+            
+            device_code = device_data.get("device_code")
+            user_code = device_data.get("user_code")
+            verification_uri = device_data.get("verification_uri")
+            expires_in = device_data.get("expires_in", 900)
+            interval = device_data.get("interval", 5)
+            
+            # Step 2: Display instructions to user
+            print(f"\n1. Open: {verification_uri}")
+            print(f"2. Enter code: {user_code}")
+            print(f"3. Authorize the application")
+            print(f"\nWaiting for authorization (expires in {expires_in}s)...")
+            print("=" * 60 + "\n")
+            
+            # Step 3: Poll for access token
+            import time
+            poll_start = time.time()
+            while time.time() - poll_start < expires_in:
+                time.sleep(interval)
+                
+                token_response = requests.post(
+                    self.GITHUB_DEVICE_TOKEN_URL,
+                    headers={"Accept": "application/json"},
+                    json={
+                        "client_id": "Iv1.b507a08c87ecfe98",
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                    },
+                    timeout=10
+                )
+                token_response.raise_for_status()
+                token_data = token_response.json()
+                
+                if "access_token" in token_data:
+                    print("✓ Successfully authenticated with GitHub!")
+                    return token_data["access_token"]
+                
+                error = token_data.get("error")
+                if error in ["authorization_pending", "slow_down"]:
+                    continue
+                elif error in ["expired_token", "access_denied"]:
+                    print(f"✗ Authentication failed: {error}")
+                    return None
+            
+            print("✗ Authentication timeout")
+            return None
+            
+        except requests.RequestException as e:
+            print(f"✗ Network error during authentication: {e}")
+            return None
+        except Exception as e:
+            print(f"✗ Authentication error: {e}")
+            return None
+    
+    def generate_prompt(self, system_prompt: str, user_request: str, context: str, temperature: float = 0.7) -> str:
+        """Generate refined prompt using GitHub Copilot."""
+        try:
+            prompt = f"""{system_prompt}
+
+User Request: "{user_request}"
+
+{context}
+
+Now generate a detailed prompt for an AI coding assistant that will help them implement this request perfectly."""
+
+            # Call Copilot API
+            headers = {
+                "Authorization": f"Bearer {self.github_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": 4096
+            }
+            
+            response = requests.post(
+                f"{self.COPILOT_API_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if "choices" in result and len(result["choices"]) > 0:
+                return result["choices"][0]["message"]["content"]
+            else:
+                return f"Unexpected response format from Copilot API: {result}"
+                
+        except requests.RequestException as e:
+            return f"Error calling Copilot API: {e}\n\nContext gathered:\n{context}"
+        except Exception as e:
+            return f"Error generating prompt: {e}\n\nContext gathered:\n{context}"
+
+
+class PromptGenerator:
+    """Generates refined prompts using AI providers."""
+    
+    SYSTEM_PROMPT_DETAILED = """You are an expert Prompt Engineer for AI Coding Assistants (GitHub Copilot, Cursor, Claude, etc.).
+
+Your goal is to transform a vague user request into a comprehensive, actionable prompt that produces working code on the first try.
+
+CRITICAL: Do not write the code yourself. Craft an instruction for an AI assistant to write the code.
+
+PROMPT STRUCTURE YOU MUST FOLLOW:
+
+1. **ROLE & EXPERTISE** (Opening)
+   - Define the persona (e.g., "Act as a Senior React Developer specializing in...")
+   - Establish expertise level and domain
+   - Set the tone (pragmatic, production-ready, etc.)
+
+2. **CONTEXT & UNDERSTANDING** (Foundation)
+   - Project structure and architecture
+   - Technology stack and frameworks in use
+   - Code style and patterns observed
+   - Key files and their responsibilities
+   - Any environment or deployment constraints
+
+3. **THE TASK** (Clear & Specific)
+   - Restate the user request in technical terms
+   - Break it into logical steps
+   - Specify inputs and outputs
+   - Define success criteria
+   - Highlight any gotchas or edge cases
+
+4. **REQUIREMENTS & CONSTRAINTS** (Guardrails)
+   - What MUST be done (strict requirements)
+   - What MUST NOT be done (forbidden patterns)
+   - Compatibility requirements
+   - Performance or security considerations
+   - Code style and naming conventions to follow
+
+5. **REFERENCE CODE** (When Applicable)
+   - Relevant file snippets showing patterns to follow
+   - Examples of existing implementations
+   - Anti-patterns to avoid
+   - Key imports or dependencies already in use
+
+6. **OUTPUT & VALIDATION** (Success Criteria)
+   - Describe expected output format
+   - Testing considerations
+   - How to validate the solution works
+   - Edge cases to handle
+
+Generate the complete prompt as a cohesive, ready-to-copy instruction block. Ensure it's specific enough to guide implementation but open enough for creative solutions."""
+
+    SYSTEM_PROMPT_SIMPLE = """You are an expert technical writer who translates coding requests into clear, concise instructions.
+
+Transform the given user request into a focused prompt for an AI coding assistant. Keep it brief but comprehensive.
+
+STRUCTURE:
+1. Role: Define the developer persona in one sentence
+2. Task: Restate the request clearly with key details
+3. Context: 2-3 key points about the codebase (tech stack, patterns, constraints)
+4. Requirements: Critical must-do and must-not-do items
+5. Output: What the code should accomplish
+
+Keep the entire prompt under 300 words. Be direct and actionable."""
+
+    def __init__(self, provider: PromptProvider):
+        self.provider = provider
+    
+    def generate_prompt(self, user_request: str, context: Dict, include_file_contents: bool = True, simple_mode: bool = False) -> str:
+        """Generate refined prompt using the AI provider.
+        
+        Args:
+            user_request: The original user request
+            context: Dictionary with codebase context information
+            include_file_contents: Whether to include file contents (detailed mode)
+            simple_mode: Whether to use simple or detailed prompt template
+        """
+        
+        # Build context message with smart organization
+        context_parts = []
+        
+        # Project structure (always helpful)
+        if not context.get('no_tree'):
+            context_parts.append(f"## Project Structure\n{context['file_tree']}")
+        
+        # Technology & style (critical for code generation)
+        if context.get('style') and not context.get('no_style'):
+            style_parts = []
+            style = context['style']
+            
+            # Organize style info logically
+            if style.get('language'):
+                style_parts.append(f"**Language**: {style['language']}")
+            if style.get('framework'):
+                style_parts.append(f"**Framework**: {style['framework']}")
+            if style.get('styling'):
+                style_parts.append(f"**Styling**: {style['styling']}")
+            if style.get('validation'):
+                style_parts.append(f"**Validation**: {style['validation']}")
+            if style.get('testing'):
+                style_parts.append(f"**Testing**: {style['testing']}")
+            if style.get('patterns'):
+                style_parts.append(f"**Patterns**: {', '.join(style['patterns'])}")
+            
+            if style_parts:
+                context_parts.append("## Technology Stack\n" + " | ".join(style_parts))
+        
+        # Environment constraints (strict requirements)
+        if context.get('hard_lock'):
+            constraints = "\n".join([f"• {c}" for c in context['hard_lock']])
+            context_parts.append(f"## Environment Constraints\n{constraints}")
+        
+        # Negative constraints (what NOT to do)
+        if context.get('negative_constraints'):
+            negatives = "\n".join([f"• {c}" for c in context['negative_constraints']])
+            context_parts.append(f"## Constraints & Limitations\n{negatives}")
+        
+        # Git activity clues
+        if context.get('git_clues'):
+            clues = "\n".join([f"• {p}" for p in context['git_clues']])
+            context_parts.append(f"## Recent Activity\n{clues}")
+        
+        # Relevant code (in detailed mode only)
+        if include_file_contents and context['files']:
+            file_preview = []
+            
+            # Show first few files inline, summarize rest
+            shown_files = min(3, len(context['files']))
+            for i, file_data in enumerate(context['files'][:shown_files]):
+                # Limit displayed content to 500 chars per file
+                content_preview = file_data['content'][:500]
+                if len(file_data['content']) > 500:
+                    content_preview += "\n... (truncated)"
+                
+                file_preview.append(f"### {file_data['path']}\n```\n{content_preview}\n```")
+            
+            if len(context['files']) > shown_files:
+                file_preview.append(f"\n*+ {len(context['files']) - shown_files} more relevant files available*")
+            
+            context_parts.append("## Relevant Code Snippets\n" + "\n".join(file_preview))
+        elif context['files']:
+            # In simple mode, just list files
+            file_list = "\n".join([f"• {f['path']}" for f in context['files']])
+            context_parts.append(f"## Related Files ({len(context['files'])} total)\n{file_list}")
+        
+        full_context = "\n\n".join(context_parts)
+        
+        # Select appropriate system prompt
+        system_prompt = self.SYSTEM_PROMPT_SIMPLE if simple_mode else self.SYSTEM_PROMPT_DETAILED
+        
+        # Build the user message
+        user_message = f"""# User Request
+{user_request}
+
+# Codebase Context
+{full_context}
+
+Please generate the optimal prompt for an AI coding assistant to handle this request."""
+        
+        # Generate prompt using provider
+        temperature = context.get('temperature', 0.7)
+        
+        # Override generate_prompt to use our custom message structure
+        return self.provider.generate_prompt(
+            system_prompt,
+            user_message,
+            "",  # Empty context since we built it into user_message
+            temperature=temperature
+        )
 
 
 def main():
@@ -760,93 +1018,424 @@ def main():
     load_environment()
     
     parser = argparse.ArgumentParser(
-        description='Contextify - Generate context-aware prompts for AI coding assistants',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  contextify "add a dark mode toggle"
-  contextify "create a user profile card" --focus frontend
-  contextify "add database migration for posts" --focus database
-  contextify "fix the bug" --changed
-    contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
-    contextify "fix the build error" --git-aware
-  contextify "refactor auth" --output prompt.md
-  contextify "my request" --model-name gemini-2.5-flash
-  contextify "my request" --temperature 0.3
-  contextify "my request" --no-tree
-  contextify "my request" --no-style
-  contextify "my request" --exclude-patterns "test_*.py" "temp_dir/"
-  contextify "my request" --simple
-  contextify "my request" --detailed
-  contextify "my request" --dry-run
-    contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+        description="""
+================================================================================
+                              CONTEXTIFY v1.1.0
+         Transform your coding requests into AI-ready context-aware prompts
+================================================================================
 
-Focus options: frontend, backend, database, config, tests
-Detail options: -s/--simple (no code), -d/--detailed (with code, default)
+Contextify analyzes your codebase and generates comprehensive prompts that
+help AI coding assistants (GitHub Copilot, Claude, etc.) understand context,
+constraints, and your coding style - resulting in better, production-ready code.
+
+WHAT IT DOES:
+  * Analyzes your project structure and detects technology stack
+  * Gathers relevant code files and configuration
+  * Creates smart, context-aware prompts for AI assistants
+  * Supports multiple detail levels (simple vs detailed modes)
+  * Integrates with GitHub Copilot, Google Gemini, and other providers
+
+QUICK START:
+  contextify "add dark mode toggle"
+  contextify "fix login bug" -s                    # Simple mode (no code)
+  contextify "create new component" --dry-run     # Preview context
+  contextify onboard                              # Setup provider
+
+USE CASES:
+  > Code generation with full project context
+  > Bug fixes with constraint awareness
+  > Feature implementation with style matching
+  > Refactoring with dependency understanding
+  > Database migrations with schema awareness
+================================================================================
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Main 'prompt' command (default if no command specified)
+    prompt_parser = subparsers.add_parser(
+        'prompt',
+        help='Generate context-aware prompt',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""
+GENERATE CONTEXT-AWARE PROMPTS FOR YOUR CODING REQUESTS
+
+The 'prompt' command (default) analyzes your codebase and generates an
+optimized prompt that you can paste directly into any AI coding assistant.
+
+COMMAND SYNTAX:
+  contextify "your request"                 # Request (command is optional)
+  contextify prompt "your request"          # Explicit prompt command
+  contextify "your request" [options]       # With options
+
+REQUEST EXAMPLES:
+  "add dark mode toggle to the app"
+  "fix the authentication bug"
+  "create a new user profile component"
+  "refactor the database layer"
+  "implement pagination for posts"
+
+DETAIL MODES:
+  --simple, -s           Simple mode: concise prompt without code details
+  --detailed, -d         Detailed mode: comprehensive with code samples (default)
+
+CONTEXT GATHERING:
+  --focus {frontend|backend|database|config|tests}
+                         Focus on specific area (others still included, just prioritized)
+  --target FILE          Primary file to analyze deeply (must exist)
+  --changed              Only include recently modified files (via git)
+  --git-aware            Include unstaged/staged files with activity clues
+  --tree-shake           With --target: include only direct dependencies (minimal)
+  --skeleton-context     With --target: show function signatures only (not impl)
+  --max-files N          Max files to include (default: 30)
+  --exclude-patterns P   Exclude paths matching patterns (glob syntax)
+
+INFORMATION CONTROL:
+  --no-tree              Omit the file tree visualization
+  --no-style             Don't analyze code style and patterns
+  --no-negative-context  Skip constraint injection from config/patterns
+  --hard-lock            Inject strict environment constraints from configs
+  --scope-function NAME  Limit changes to specific function (negative constraint)
+
+AI PROVIDER & MODEL:
+  --use-github           Use GitHub Copilot API (default: Google Gemini)
+  --model-name MODEL     AI model name (default: gemini-2.5-flash)
+  --temperature [0-1]    Randomness control: lower=deterministic, higher=creative
+                         Default: 0.7 (balanced)
+
+OUTPUT OPTIONS:
+  --output FILE, -o      Save to file instead of copying to clipboard
+  --no-clipboard         Don't copy to clipboard (show in terminal)
+  --dry-run              Preview gathered context WITHOUT calling AI
+
+ADVANCED PATTERNS:
+  Tree-shaking (minimal context):
+    contextify "fix bug" --target src/Bug.ts --tree-shake
+
+  Skeleton context (function signatures only):
+    contextify "refactor" --target src/utils.ts --skeleton-context
+
+  Combined approach:
+    contextify "optimize" --target src/api.ts --tree-shake --skeleton-context
+
+  Focus on specific tech stack:
+    contextify "new page" --focus frontend
+    contextify "new endpoint" --focus backend --hard-lock
+
+EXAMPLES:
+
+  1. Basic code generation:
+     $ contextify "add a dark mode toggle"
+
+  2. Simple mode (quick, no code details):
+     $ contextify "fix login bug" -s
+
+  3. Preview what will be sent (dry run):
+     $ contextify "new feature" --dry-run
+
+  4. Target specific file with minimal context:
+     $ contextify "optimize this function" --target src/heavy.ts --tree-shake
+
+  5. Save to file instead of clipboard:
+     $ contextify "large refactor" --output prompt.md
+
+  6. Focus on specific part of codebase:
+     $ contextify "new component" --focus frontend
+
+  7. Use GitHub Copilot instead of Gemini:
+     $ contextify "your request" --use-github
+
+  8. Control AI creativity:
+     $ contextify "deterministic code" --temperature 0.1
+     $ contextify "creative solution" --temperature 0.9
+
+  9. Only analyze recent changes:
+     $ contextify "fix recent bugs" --changed
+
+ 10. Database migration with constraints:
+     $ contextify "add users table" --focus database --hard-lock
+
+ENVIRONMENT SETUP:
+  Run 'contextify onboard' for interactive provider setup
+  Or set: GEMINI_API_KEY or GITHUB_TOKEN environment variables
+
+PERFORMANCE TIPS:
+  • Use --tree-shake for large codebases (faster, focused)
+  • Use -s (--simple) for quick requests (smaller prompts)
+  • Use --skeleton-context for many files (reduces token usage)
+  • Set --max-files lower for very large projects (default: 30)
+
+TROUBLESHOOTING:
+  • "No files found": Check your project has code files
+  • "API key not found": Run 'contextify onboard' or set env vars
+  • "Command failed": Use --dry-run to debug context gathering
+
+See 'contextify --help' for global options
+        """,
+        epilog="""
+QUICK REFERENCE:
+  -s, --simple               Simple mode (no code)
+  -d, --detailed             Detailed mode with code (default)
+  --focus {area}             Focus on specific area
+  --target FILE              Primary file to analyze
+  --tree-shake               Minimal context (direct deps only)
+  --dry-run                  Preview context without AI call
+  -o, --output FILE          Save to file
+  --no-clipboard             Don't copy to clipboard
+
+Still confused? Try: contextify --help
+Setup providers: contextify onboard
         """
     )
     
-    parser.add_argument('request', help='Your coding request (e.g., "add dark mode")')
-    parser.add_argument('--version', '-v', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('--focus', choices=['frontend', 'backend', 'database', 'config', 'tests'],
+    prompt_parser.add_argument('request', nargs='?', default=None, help='Your coding request (e.g., "add dark mode")')
+    prompt_parser.add_argument('--focus', choices=['frontend', 'backend', 'database', 'config', 'tests'],
                        help='Focus on specific part of codebase')
-    parser.add_argument('--changed', action='store_true',
+    prompt_parser.add_argument('--changed', action='store_true',
                        help='Only include files changed in git')
-    parser.add_argument('--output', '-o', help='Save to file instead of clipboard')
-    parser.add_argument('--max-files', type=int, default=30,
+    prompt_parser.add_argument('--output', '-o', help='Save to file instead of clipboard')
+    prompt_parser.add_argument('--max-files', type=int, default=30,
                        help='Maximum number of files to include (default: 30)')
-    parser.add_argument('--no-clipboard', action='store_true',
+    prompt_parser.add_argument('--no-clipboard', action='store_true',
                        help='Do not copy to clipboard')
-    parser.add_argument('--model-name', type=str, default='gemini-2.5-flash',
+    prompt_parser.add_argument('--model-name', type=str, default='gemini-2.5-flash',
                        help="Specify the generative AI model to use (default: 'gemini-2.5-flash')")
-    parser.add_argument('--temperature', type=float, default=0.7, metavar='[0.0-1.0]',
+    prompt_parser.add_argument('--temperature', type=float, default=0.7, metavar='[0.0-1.0]',
                        help='Controls randomness in generation; lower values make output more deterministic (default: 0.7)')
-    parser.add_argument('--no-tree', action='store_true',
+    prompt_parser.add_argument('--use-github', action='store_true',
+                       help='Use GitHub Copilot API instead of Gemini (requires GITHUB_TOKEN)')
+    prompt_parser.add_argument('--no-tree', action='store_true',
                        help='Do not include the file tree in the generated prompt')
-    parser.add_argument('--no-style', action='store_true',
+    prompt_parser.add_argument('--no-style', action='store_true',
                        help='Do not include the detected code style in the generated prompt')
-    parser.add_argument('--exclude-patterns', type=str, nargs='*', default=[],
+    prompt_parser.add_argument('--exclude-patterns', type=str, nargs='*', default=[],
                        help='Glob patterns for files/directories to explicitly exclude from context gathering (e.g., "temp/*", "docs/")')
-    parser.add_argument('--target', type=str,
+    prompt_parser.add_argument('--target', type=str,
                        help='Primary file to include fully (used for tree-shaking and skeleton context)')
-    parser.add_argument('--tree-shake', action='store_true',
+    prompt_parser.add_argument('--tree-shake', action='store_true',
                        help='Include only direct dependencies of --target (minimal context)')
-    parser.add_argument('--skeleton-context', action='store_true',
+    prompt_parser.add_argument('--skeleton-context', action='store_true',
                        help='Strip implementations from non-target files (signatures only)')
-    parser.add_argument('--git-aware', action='store_true',
+    prompt_parser.add_argument('--git-aware', action='store_true',
                        help='Include recently modified git files and inject intent clue')
-    parser.add_argument('--hard-lock', action='store_true',
+    prompt_parser.add_argument('--hard-lock', action='store_true',
                        help='Inject strict tech stack constraints from config files')
-    parser.add_argument('--no-negative-context', action='store_true',
+    prompt_parser.add_argument('--no-negative-context', action='store_true',
                        help='Disable negative constraints injection')
-    parser.add_argument('--scope-function', type=str,
+    prompt_parser.add_argument('--scope-function', type=str,
                        help='Limit changes to a specific function name (negative constraint)')
     
     # Add mutually exclusive group for detail level
-    detail_group = parser.add_mutually_exclusive_group()
+    detail_group = prompt_parser.add_mutually_exclusive_group()
     detail_group.add_argument('-s', '--simple', action='store_true',
                               help='Generate simple paragraph prompt without code details')
     detail_group.add_argument('-d', '--detailed', action='store_true',
                               help='Generate detailed prompt with code suggestions (default)')
-    parser.add_argument('--dry-run', action='store_true',
+    prompt_parser.add_argument('--dry-run', action='store_true',
                        help='Preview gathered context without calling AI (useful for debugging)')
     
-    args = parser.parse_args()
+    # Onboarding command
+    onboard_parser = subparsers.add_parser(
+        'onboard',
+        help='Interactive setup wizard for providers and models',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""
+INTERACTIVE SETUP WIZARD FOR AI PROVIDERS
 
-    if not 0.0 <= args.temperature <= 1.0:
+The 'onboard' command guides you through setting up your preferred AI provider
+and securely storing credentials. Run this once to get started!
+
+PROVIDERS AVAILABLE:
+  • GitHub Copilot      - Access to GPT-4o and other models
+  • Google Gemini       - Gemini 2.0 Flash, 1.5 Pro/Flash
+  • OpenAI              - GPT-4 and GPT-3.5 Turbo
+  • Anthropic           - Claude 3 Opus, Sonnet, Haiku
+  • Local Proxy         - Connect to local AI server
+
+AUTHENTICATION FLOW:
+  1. Choose your preferred provider
+  2. Select which model to use
+  3. Authenticate securely (API key or device flow)
+  4. Credentials saved to OS keyring (encrypted)
+
+QUICK START:
+  $ contextify onboard      # Interactive (recommended)
+
+AUTOMATION / SCRIPTING:
+  $ contextify onboard --non-interactive --auth-choice github-copilot
+  $ contextify onboard --provider google-gemini
+
+EXAMPLES:
+
+  1. Interactive setup (recommended):
+     $ contextify onboard
+
+  2. Automated GitHub Copilot setup:
+     $ contextify onboard --non-interactive --auth-choice github-copilot
+
+  3. Automated Google Gemini setup:
+     $ contextify onboard --non-interactive --auth-choice google-gemini
+
+  4. Using provider alias:
+     $ contextify onboard --provider github-copilot
+
+ENVIRONMENT VARIABLES (Optional):
+  GEMINI_API_KEY         - Google Gemini API key (if not storing in keyring)
+  GITHUB_TOKEN           - GitHub personal access token
+  OPENAI_API_KEY         - OpenAI API key
+  ANTHROPIC_API_KEY      - Anthropic API key
+
+CREDENTIAL STORAGE:
+  • Credentials stored in OS keyring for maximum security:
+    - Windows: Credential Manager
+    - macOS: Keychain
+    - Linux: libsecret
+  • Fallback to encrypted file if keyring unavailable
+  • Never stored in plain text
+
+RECONFIGURATION:
+  Run 'contextify onboard' anytime to change providers or credentials
+
+TROUBLESHOOTING:
+  • "Keyring not available": Environment variable fallback will be used
+  • "Invalid API key": Check your token and try again
+  • "Need model discovery": Check internet connection and API access
+
+        """,
+        epilog="""
+Need help? Run: contextify --help
+Start using: contextify "your request"
+        """
+    )
+    onboard_parser.add_argument('--non-interactive', action='store_true',
+                        help='Run in non-interactive mode (for scripting)')
+    onboard_parser.add_argument('--auth-choice', type=str,
+                        choices=['github-copilot', 'google-gemini', 'openai', 'anthropic', 'local-proxy', 'skip'],
+                        help='Pre-select provider (non-interactive)')
+    onboard_parser.add_argument('--provider', type=str, dest='provider_name',
+                        help='Provider alias (alternative to --auth-choice)')
+    
+    parser.add_argument('--version', '-v', action='version', version=f'%(prog)s {__version__}')
+    
+    # Handle backward compatibility: contextify "request" -> contextify prompt "request"
+    # Check if first non-option argument is not a valid subcommand
+    argv = sys.argv[1:]  # Skip program name
+    if argv and not argv[0].startswith('-') and argv[0] not in ['prompt', 'onboard']:
+        # First arg is likely a request string, not a command - inject 'prompt' command
+        sys.argv = [sys.argv[0], 'prompt'] + argv
+    
+    args = parser.parse_args()
+    
+    # Additional safety check
+    if not args.command:
+        # This shouldn't happen now, but handle it gracefully
+        parser.print_help()
+        sys.exit(1)
+    
+    # Handle 'onboard' command
+    if args.command == 'onboard':
+        from onboarding import run_onboarding
+        success = run_onboarding(non_interactive=getattr(args, 'non_interactive', False))
+        sys.exit(0 if success else 1)
+    
+    # From here on, we're handling the 'prompt' command
+    if args.command != 'prompt':
+        parser.error(f"Unknown command: {args.command}")
+    
+    # Validate request
+    if not getattr(args, 'request', None):
+        parser.error("'request' is required")
+    
+    # Validate temperature
+    if hasattr(args, 'temperature') and not 0.0 <= args.temperature <= 1.0:
         parser.error("--temperature must be between 0.0 and 1.0")
 
-    if args.tree_shake and not args.target:
+    if hasattr(args, 'tree_shake') and args.tree_shake and not args.target:
         parser.error("--tree-shake requires --target")
     
-    # Check for API key
-    api_key = os.environ.get('GEMINI_API_KEY')
-    if not api_key and not args.dry_run:
-        print("[ERROR] GEMINI_API_KEY environment variable not set")
-        print("\nGet your API key from: https://makersuite.google.com/app/apikey")
-        print("Then set it with: export GEMINI_API_KEY='your-key-here'")
-        print("\nOr create a .env file with: GEMINI_API_KEY=your-key-here")
-        sys.exit(1)
+    # Load configuration
+    from config import get_config_manager
+    from auth import get_auth_manager
+    
+    config_mgr = get_config_manager()
+    auth_mgr = get_auth_manager(config_mgr.config_dir)
+    
+    # Determine provider from config or CLI flags
+    provider = None
+    
+    # First, check if user specified provider via CLI
+    if hasattr(args, 'use_github') and args.use_github:
+        # User explicitly requested GitHub Copilot
+        github_token = os.environ.get('GITHUB_TOKEN')
+        if not github_token:
+            # Try to get from auth manager
+            profile = auth_mgr.get_profile("github-copilot:default")
+            if profile:
+                github_token = auth_mgr.get_credential("github-copilot:default")
+        
+        if not github_token and not args.dry_run:
+            print("[ERROR] GitHub Copilot not configured")
+            print("\nTo set up GitHub Copilot:")
+            print("  contextify onboard")
+            print("\nOr set GITHUB_TOKEN environment variable:")
+            print("  export GITHUB_TOKEN='your-token'")
+            sys.exit(1)
+        
+        if not args.dry_run:
+            try:
+                provider = GitHubCopilotProvider(github_token)
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize GitHub Copilot provider: {e}")
+                sys.exit(1)
+    else:
+        # Use configured model/provider from config, fall back to Gemini
+        default_model = config_mgr.get_default_model()
+        
+        if default_model and not args.dry_run:
+            # Use configured provider
+            provider_name = default_model.split('/')[0]  # e.g., "github-copilot" from "github-copilot/gpt-4o"
+            
+            if provider_name == "github-copilot":
+                # Get GitHub token from auth
+                github_token = auth_mgr.get_credential("github-copilot:default")
+                if github_token:
+                    try:
+                        provider = GitHubCopilotProvider(github_token)
+                    except Exception as e:
+                        print(f"[WARN] Failed to use configured GitHub Copilot: {e}")
+                        print("Falling back to Gemini...")
+                        provider = None
+            elif provider_name == "google" or provider_name == "google-gemini":
+                # Get Gemini API key
+                api_key = auth_mgr.get_credential("google-gemini:default")
+                if api_key:
+                    provider = GeminiProvider(api_key, model_name=default_model.split('/')[-1])
+                else:
+                    print(f"[WARN] Configured provider not found in auth store: {provider_name}")
+                    provider = None
+        
+        # Fall back to Gemini if no config or provider init failed
+        if not provider:
+            api_key = os.environ.get('GEMINI_API_KEY')
+            if not api_key:
+                # Try to get from auth manager
+                profile = auth_mgr.get_profile("google-gemini:default")
+                if profile:
+                    api_key = auth_mgr.get_credential("google-gemini:default")
+            
+            if not api_key and not args.dry_run:
+                print("[ERROR] No default provider configured and GEMINI_API_KEY not set")
+                print("\nTo set up a provider:")
+                print("  contextify onboard")
+                print("\nOr set GEMINI_API_KEY environment variable:")
+                print("  export GEMINI_API_KEY='your-key'")
+                sys.exit(1)
+            
+            if api_key and not args.dry_run:
+                model_name = getattr(args, 'model_name', 'gemini-2.5-flash')
+                provider = GeminiProvider(api_key, model_name=model_name)
     
     spinner = Spinner("Gathering context")
     spinner.start()
@@ -885,7 +1474,8 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
         'no_style': args.no_style,
         'git_clues': git_clues,
         'hard_lock': hard_lock,
-        'negative_constraints': negative_constraints
+        'negative_constraints': negative_constraints,
+        'temperature': args.temperature
     }
     
     spinner.stop()
@@ -928,17 +1518,24 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
         print(f"   - Git-aware: {args.git_aware}")
         print(f"   - Hard-lock: {args.hard_lock}")
         print(f"   - Negative constraints: {not args.no_negative_context}")
+        print(f"   - Provider: {'GitHub Copilot' if args.use_github else 'Gemini'}")
         print(f"   - Model: {args.model_name}")
         print(f"   - Temperature: {args.temperature}")
         print("="*60)
         sys.exit(0)
     
-    spinner2 = Spinner(f"Generating refined prompt with Gemini ({args.model_name}, temperature={args.temperature}, {detail_level})")
+    provider_name = "GitHub Copilot" if args.use_github else "Gemini"
+    spinner2 = Spinner(f"Generating refined prompt with {provider_name} ({args.model_name}, temperature={args.temperature}, {detail_level})")
     spinner2.start()
     
     # Generate prompt
-    generator = PromptGenerator(api_key, model_name=args.model_name, temperature=args.temperature)
-    refined_prompt = generator.generate_prompt(args.request, context, include_file_contents=include_file_contents)
+    generator = PromptGenerator(provider)
+    refined_prompt = generator.generate_prompt(
+        args.request, 
+        context, 
+        include_file_contents=include_file_contents,
+        simple_mode=args.simple  # Pass simple mode flag
+    )
     
     spinner2.stop()
     

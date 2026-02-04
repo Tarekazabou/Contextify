@@ -37,7 +37,7 @@ Write-Success "Python found: $pythonCmd (v$pyVersion)"
 Write-Info "Installing Python dependencies..."
 Show-Spinner "Installing dependencies" 1500
 & $pythonCmd -m pip install --upgrade pip --user
-& $pythonCmd -m pip install google-generativeai pyperclip pathspec --user
+& $pythonCmd -m pip install google-generativeai pyperclip pathspec python-dotenv requests keyring colorama --user
 
 Write-Success "Dependencies installed"
 
@@ -56,23 +56,27 @@ python "%~dp0..\contextify.py" %*
 
 Write-Success "contextify.bat created"
 
-# API key
+# Interactive provider setup
 Write-Host ""
-$apiKeyInput = Read-Host "Enter GEMINI_API_KEY (leave blank to skip)"
-if ($apiKeyInput) {
-    $env:GEMINI_API_KEY = $apiKeyInput
-    [System.Environment]::SetEnvironmentVariable("GEMINI_API_KEY", $apiKeyInput, "User")
-    Write-Success "GEMINI_API_KEY saved"
-} else {
-    Write-Warn "API key not set"
-}
+Write-Info "Setting up AI provider (interactive wizard)..."
+Write-Host ""
+
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$projectRoot = Split-Path $scriptDir -Parent
+
+& $pythonCmd "$projectRoot\contextify.py" onboard
 
 Write-Host ""
 Write-Success "Installation complete"
 
 Write-Host ""
-Write-Host "Usage:"
+Write-Host "Next Steps:" -ForegroundColor Yellow
+Write-Host "  1. Run: .\scripts\contextify.bat ""your request here"""
+Write-Host "  2. For more options: .\scripts\contextify.bat --help"
+Write-Host "  3. To reconfigure provider: .\scripts\contextify.bat onboard"
+Write-Host ""
+Write-Host "Examples:" -ForegroundColor Cyan
 Write-Host "  .\scripts\contextify.bat ""add a dark mode toggle"""
 Write-Host "  .\scripts\contextify.bat ""fix bug"" --changed"
+Write-Host "  .\scripts\contextify.bat ""refactor auth"" --focus backend"
 Write-Host ""
-Write-Host "Make sure to restart your terminal to apply environment variable changes." -ForegroundColor Yellow

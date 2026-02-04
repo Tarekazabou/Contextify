@@ -419,7 +419,7 @@ experimental/
 ## API Costs
 
 Gemini pricing is very generous:
-- **Gemini 1.5 Flash**: FREE for up to 15 requests/minute
+- **Gemini 2.5 Flash**: FREE for up to 15 requests/minute
 - Even large codebases (~100K tokens) cost pennies
 
 A typical request: $0.00 - $0.02
@@ -489,7 +489,7 @@ MIT License - See LICENSE file for details
 Built with ❤️ for developers tired of generic AI-generated code.
 
 Powered by:
-- Google Gemini 1.5 Flash (for massive context windows)
+- Google Gemini 2.5 Flash (for massive context windows)
 - Python 3
 - A deep frustration with Copilot not understanding my codebase 😅
 

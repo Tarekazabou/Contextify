@@ -53,32 +53,24 @@ python "%~dp0..\contextify.py" %*
 
 Write-Host "contextify.bat created" -ForegroundColor Green
 
-# Step 4: API key
+# Step 4: Provider Setup
 Write-Host ""
-Write-Host "[4/4] API key..." -ForegroundColor Yellow
+Write-Host "[4/4] Provider setup (interactive wizard)..." -ForegroundColor Yellow
 
-if (-not $env:GEMINI_API_KEY) {
-    $key = Read-Host "Enter GEMINI_API_KEY (optional)"
-    if ($key) {
-        $env:GEMINI_API_KEY = $key
-        [System.Environment]::SetEnvironmentVariable("GEMINI_API_KEY", $key, "User")
-        Write-Host "API key saved" -ForegroundColor Green
-    }
-} else {
-    Write-Host "API key already set" -ForegroundColor Green
-}
+$projectRoot = Split-Path $PSScriptRoot -Parent
+& ./.venv/Scripts/python "$projectRoot\contextify.py" onboard
 
 Write-Host ""
 Write-Host "SETUP COMPLETE" -ForegroundColor Green
-Write-Host "Run: .\scripts\contextify.bat --help"
+Write-Host ""
+Write-Host "Next Steps:" -ForegroundColor Yellow
+Write-Host "  1. Run: .\scripts\contextify.bat ""your request here"""
+Write-Host "  2. For help: .\scripts\contextify.bat --help"
+Write-Host "  3. To reconfigure: .\scripts\contextify.bat onboard"
 Write-Host ""
 Write-Host "Examples:" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""explain this code""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""generate unit tests for this       function""" -ForegroundColor Cyan
+Write-Host "  .\scripts\contextify.bat ""add a dark mode toggle""" -ForegroundColor Cyan
+Write-Host "  .\scripts\contextify.bat ""generate unit tests for this function""" -ForegroundColor Cyan
 Write-Host "  .\scripts\contextify.bat ""refactor this code to use async/await""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""improve performance of this algorithm""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""write documentation for this module""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""summarize the changes made in this commit""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""generate a README.md for this project""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""generate code to interact with this API""" -ForegroundColor Cyan
-Write-Host "  .\scripts\contextify.bat ""find bugs in this code""" -ForegroundColor Cyan
+Write-Host "  .\scripts\contextify.bat ""fix bug"" --changed" -ForegroundColor Cyan
+Write-Host "  .\scripts\contextify.bat ""improve performance of algorithm"" --focus backend" -ForegroundColor Cyan
