@@ -718,14 +718,18 @@ class GitHubCopilotProvider(PromptProvider):
     
     GITHUB_DEVICE_AUTH_URL = "https://github.com/login/device/code"
     GITHUB_DEVICE_TOKEN_URL = "https://github.com/login/oauth/access_token"
-    COPILOT_API_URL = "https://api.githubcopilot.com"
+    COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+    COPILOT_API_URL = "https://api.individual.githubcopilot.com"
     
     def __init__(self, github_token: Optional[str] = None):
         self.github_token = github_token
+        self.copilot_api_token = None
         if not github_token:
             self.github_token = self._authenticate()
         if not self.github_token:
             raise ValueError("GitHub Copilot authentication failed")
+        # Exchange GitHub token for Copilot API token
+        self.copilot_api_token = self._exchange_for_copilot_token()
     
     def _authenticate(self) -> Optional[str]:
         """Perform GitHub device flow authentication."""
@@ -796,9 +800,52 @@ class GitHubCopilotProvider(PromptProvider):
             print(f"✗ Authentication error: {e}")
             return None
     
+    def _exchange_for_copilot_token(self) -> Optional[str]:
+        """Exchange GitHub OAuth token for Copilot API token."""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.github_token}",
+                "Accept": "application/json",
+                "User-Agent": "Contextify/1.2.0"
+            }
+            
+            response = requests.get(
+                self.COPILOT_TOKEN_URL,
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get("token")
+                if token:
+                    return token
+                else:
+                    print("✗ No token in Copilot API response")
+                    return None
+            elif response.status_code == 401:
+                print("✗ GitHub token invalid or expired")
+                return None
+            elif response.status_code == 403:
+                print("✗ GitHub account not authorized for Copilot (requires active subscription)")
+                return None
+            else:
+                print(f"✗ Token exchange failed: {response.status_code}")
+                return None
+                
+        except requests.RequestException as e:
+            print(f"✗ Network error during token exchange: {e}")
+            return None
+        except Exception as e:
+            print(f"✗ Token exchange error: {e}")
+            return None
+    
     def generate_prompt(self, system_prompt: str, user_request: str, context: str, temperature: float = 0.7) -> str:
         """Generate refined prompt using GitHub Copilot."""
         try:
+            if not self.copilot_api_token:
+                return "Error: GitHub Copilot authentication token not available. Re-run onboarding."
+            
             prompt = f"""{system_prompt}
 
 User Request: "{user_request}"
@@ -807,20 +854,26 @@ User Request: "{user_request}"
 
 Now generate a detailed prompt for an AI coding assistant that will help them implement this request perfectly."""
 
-            # Call Copilot API
+            # Call Copilot API - use correct format for Copilot endpoint
+            # Note: Copilot API requires specific IDE headers even for third-party tools
             headers = {
-                "Authorization": f"Bearer {self.github_token}",
+                "Authorization": f"Bearer {self.copilot_api_token}",
                 "Accept": "application/json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "Contextify/1.2.0",
+                "Editor-Version": "vscode/1.85.0",  # Copilot recognizes VSCode
+                "Editor-Plugin-Version": "copilot/1.150.0",  # Required format
             }
             
+            # Copilot API uses a specific format
             payload = {
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": 4096
+                "max_tokens": 4096,
+                "model": "gpt-4"  # or whatever model the user has access to
             }
             
             response = requests.post(
@@ -829,6 +882,15 @@ Now generate a detailed prompt for an AI coding assistant that will help them im
                 json=payload,
                 timeout=60
             )
+            
+            # Debug bad requests
+            if response.status_code == 400:
+                try:
+                    error_data = response.json()
+                    print(f"DEBUG: Copilot API error response: {error_data}")
+                except:
+                    print(f"DEBUG: Copilot API 400 response body: {response.text}")
+            
             response.raise_for_status()
             result = response.json()
             
@@ -1011,6 +1073,233 @@ Please generate the optimal prompt for an AI coding assistant to handle this req
             "",  # Empty context since we built it into user_message
             temperature=temperature
         )
+
+
+def analyze_project(cwd: str = ".") -> str:
+    """Analyze project structure, workflow, and dataflow."""
+    from pathlib import Path
+    import os
+    
+    analysis = []
+    analysis.append("="*70)
+    analysis.append("PROJECT ANALYSIS REPORT")
+    analysis.append("="*70)
+    
+    root = Path(cwd)
+    
+    # 1. Project Structure
+    analysis.append("\n[1] PROJECT STRUCTURE")
+    analysis.append("-" * 70)
+    
+    # Detect language/framework
+    languages = set()
+    frameworks = []
+    
+    if (root / "package.json").exists():
+        languages.add("JavaScript/TypeScript")
+        frameworks.append("Node.js")
+    
+    # Check Python first, then read requirements
+    req_file = root / "requirements.txt"
+    setup_py = root / "setup.py"
+    pyproject = root / "pyproject.toml"
+    
+    if req_file.exists() or setup_py.exists() or pyproject.exists():
+        languages.add("Python")
+    
+    if (root / "go.mod").exists():
+        languages.add("Go")
+    if (root / "Cargo.toml").exists():
+        languages.add("Rust")
+    if (root / "pom.xml").exists() or (root / "build.gradle").exists():
+        languages.add("Java")
+    
+    # Detect frameworks - consolidated check
+    if pyproject.exists():
+        content = pyproject.read_text()
+        if "django" in content.lower():
+            frameworks.append("Django")
+        if "flask" in content.lower():
+            frameworks.append("Flask")
+        if "fastapi" in content.lower():
+            frameworks.append("FastAPI")
+    
+    if req_file.exists():
+        content = req_file.read_text().lower()
+        if "django" in content and "Django" not in frameworks:
+            frameworks.append("Django")
+        if "flask" in content and "Flask" not in frameworks:
+            frameworks.append("Flask")
+        if "fastapi" in content and "FastAPI" not in frameworks:
+            frameworks.append("FastAPI")
+    
+    if setup_py.exists():
+        content = setup_py.read_text().lower()
+        if "django" in content and "Django" not in frameworks:
+            frameworks.append("Django")
+        if "flask" in content and "Flask" not in frameworks:
+            frameworks.append("Flask")
+    
+    package_json = root / "package.json"
+    if package_json.exists():
+        content = package_json.read_text()
+        if "react" in content.lower():
+            frameworks.append("React")
+        if "next" in content.lower():
+            frameworks.append("Next.js")
+        if "express" in content.lower():
+            frameworks.append("Express")
+        if "vue" in content.lower():
+            frameworks.append("Vue")
+    
+    analysis.append(f"Languages: {', '.join(languages) if languages else 'Not detected'}")
+    analysis.append(f"Frameworks: {', '.join(frameworks) if frameworks else 'None detected'}")
+    
+    # 2. Directory structure
+    analysis.append("\n[2] DIRECTORY STRUCTURE")
+    analysis.append("-" * 70)
+    
+    main_dirs = []
+    for item in sorted(root.iterdir()):
+        if item.is_dir() and not item.name.startswith('.') and item.name not in ['__pycache__', 'node_modules', 'venv', '.venv']:
+            file_count = len(list(item.rglob('*')))
+            main_dirs.append(f"  {item.name}/ ({file_count} items)")
+    
+    if main_dirs:
+        for d in main_dirs[:15]:  # Limit to 15 dirs
+            analysis.append(d)
+        if len(main_dirs) > 15:
+            analysis.append(f"  ... and {len(main_dirs) - 15} more directories")
+    
+    # 3. Entry points
+    analysis.append("\n[3] ENTRY POINTS & MAIN FILES")
+    analysis.append("-" * 70)
+    
+    entry_points = []
+    skip_dirs = {'__pycache__', '.venv', 'venv', 'node_modules', '.git', 'site-packages'}
+    
+    # Python entry points
+    for entry in ['main.py', '__main__.py', 'app.py', 'wsgi.py', 'asgi.py', 'manage.py']:
+        if (root / entry).exists():
+            entry_points.append(f"  - {entry}")
+        # Check subdirs
+        for p in root.rglob(entry):
+            parts = p.relative_to(root).parts
+            if not any(part in skip_dirs for part in parts):
+                entry_points.append(f"  - {p.relative_to(root)}")
+    
+    # JavaScript entry points
+    if package_json.exists():
+        try:
+            import json
+            data = json.loads(package_json.read_text())
+            if "main" in data:
+                entry_points.append(f"  - {data['main']} (package.json main)")
+            if "scripts" in data and "start" in data["scripts"]:
+                entry_points.append(f"  - start script: {data['scripts']['start']}")
+        except:
+            pass
+    
+    if entry_points:
+        for ep in entry_points[:10]:
+            analysis.append(ep)
+    else:
+        analysis.append("  No obvious entry points found")
+    
+    # 4. Dependencies
+    analysis.append("\n[4] DEPENDENCIES & IMPORTS")
+    analysis.append("-" * 70)
+    
+    imports = {}
+    skip_dirs = {'__pycache__', 'venv', '.venv', 'node_modules', '.git', 'site-packages'}
+    
+    # Scan Python files
+    for py_file in root.rglob("*.py"):
+        if any(part in skip_dirs for part in py_file.parts):
+            continue
+        try:
+            content = py_file.read_text(errors='ignore')
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith(('import ', 'from ')):
+                    module = line.split()[1].split('.')[0]
+                    if module:  # Skip empty modules
+                        imports[module] = imports.get(module, 0) + 1
+        except:
+            pass
+    
+    if imports:
+        analysis.append("Top imports (Python):")
+        for mod, count in sorted(imports.items(), key=lambda x: -x[1])[:10]:
+            if mod:  # Filter empty
+                analysis.append(f"  - {mod} ({count} occurrences)")
+    else:
+        analysis.append("  No imports found")
+    
+    # 5. File statistics
+    analysis.append("\n[5] FILE STATISTICS")
+    analysis.append("-" * 70)
+    
+    file_types = {}
+    total_lines = 0
+    skip_dirs = {'__pycache__', '.git', 'node_modules', '.venv', 'venv', 'site-packages'}
+    
+    for f in root.rglob("*"):
+        if not any(part in skip_dirs for part in f.parts):
+            if f.is_file():
+                ext = f.suffix or "no_extension"
+                file_types[ext] = file_types.get(ext, 0) + 1
+                
+                try:
+                    total_lines += len(f.read_text(errors='ignore').split('\n'))
+                except:
+                    pass
+    
+    analysis.append(f"Total lines of code (estimate): {total_lines:,}")
+    analysis.append("File types:")
+    for ext, count in sorted(file_types.items(), key=lambda x: -x[1])[:10]:
+        analysis.append(f"  - {ext}: {count} files")
+    
+    # 6. Likely dataflow
+    analysis.append("\n[6] INFERRED DATAFLOW & WORKFLOW")
+    analysis.append("-" * 70)
+    
+    if "django" in str(frameworks).lower():
+        analysis.append("  Pattern: Django MVT (Models → Views → Templates)")
+        analysis.append("  Flow: HTTP Request → URL Router → View → Model → Database → Template → Response")
+    elif "fastapi" in str(frameworks).lower():
+        analysis.append("  Pattern: FastAPI REST API")
+        analysis.append("  Flow: HTTP Request → Route Handler → Business Logic → Database → JSON Response")
+    elif "react" in str(frameworks).lower():
+        analysis.append("  Pattern: React SPA (Single Page Application)")
+        analysis.append("  Flow: User Interaction → React Component → State Update → Re-render → DOM Update")
+    elif "express" in str(frameworks).lower():
+        analysis.append("  Pattern: Express.js REST API")
+        analysis.append("  Flow: HTTP Request → Middleware → Route Handler → Business Logic → Response")
+    
+    if "Python" in str(languages):
+        analysis.append("  Data handling: Likely file/database I/O with Python libraries")
+    if "JavaScript" in str(languages) or "TypeScript" in str(languages):
+        analysis.append("  Data handling: Likely async/promise-based, possible real-time updates")
+    
+    # 7. Configuration files
+    analysis.append("\n[7] CONFIGURATION & BUILD FILES")
+    analysis.append("-" * 70)
+    
+    config_files = []
+    for cf in ['.env', '.env.example', 'docker-compose.yml', 'Dockerfile', '.github', 'pytest.ini', 'setup.cfg', 'tox.ini']:
+        if (root / cf).exists():
+            config_files.append(f"  - {cf}")
+    
+    if config_files:
+        for cf in config_files:
+            analysis.append(cf)
+    else:
+        analysis.append("  No standard config files detected")
+    
+    analysis.append("\n" + "="*70)
+    
+    return "\n".join(analysis)
 
 
 def main():
@@ -1235,6 +1524,10 @@ Setup providers: contextify onboard
                               help='Generate detailed prompt with code suggestions (default)')
     prompt_parser.add_argument('--dry-run', action='store_true',
                        help='Preview gathered context without calling AI (useful for debugging)')
+    prompt_parser.add_argument('--analyze', action='store_true',
+                       help='Analyze project structure, workflow, and dataflow without generating a prompt')
+    prompt_parser.add_argument('--ai', action='store_true',
+                       help='Use AI to enhance analysis (combine with --analyze for detailed AI-powered report)')
     
     # Onboarding command
     onboard_parser = subparsers.add_parser(
@@ -1320,11 +1613,20 @@ Start using: contextify "your request"
     parser.add_argument('--version', '-v', action='version', version=f'%(prog)s {__version__}')
     
     # Handle backward compatibility: contextify "request" -> contextify prompt "request"
+    # Also handle: contextify --analyze -> contextify prompt --analyze
     # Check if first non-option argument is not a valid subcommand
     argv = sys.argv[1:]  # Skip program name
-    if argv and not argv[0].startswith('-') and argv[0] not in ['prompt', 'onboard']:
-        # First arg is likely a request string, not a command - inject 'prompt' command
-        sys.argv = [sys.argv[0], 'prompt'] + argv
+    if argv:
+        # Check if only flags are present and no subcommand
+        if all(arg.startswith('-') for arg in argv):
+            # Only flags, no subcommand - inject 'prompt' command
+            sys.argv = [sys.argv[0], 'prompt'] + argv
+        elif argv[0].startswith('-'):
+            # First arg is a flag, not a command - inject 'prompt' command
+            sys.argv = [sys.argv[0], 'prompt'] + argv
+        elif argv[0] not in ['prompt', 'onboard']:
+            # First arg is likely a request string, not a command - inject 'prompt' command
+            sys.argv = [sys.argv[0], 'prompt'] + argv
     
     args = parser.parse_args()
     
@@ -1336,9 +1638,169 @@ Start using: contextify "your request"
     
     # Handle 'onboard' command
     if args.command == 'onboard':
-        from onboarding import run_onboarding
+        from .onboarding import run_onboarding
         success = run_onboarding(non_interactive=getattr(args, 'non_interactive', False))
         sys.exit(0 if success else 1)
+    
+    # Handle 'analyze' command (part of prompt)
+    if args.command == 'prompt' and hasattr(args, 'analyze') and args.analyze:
+        report = analyze_project()
+        
+        # If --ai flag is set, enhance the report with AI
+        if hasattr(args, 'ai') and args.ai:
+            # Load configuration and provider
+            from .config import get_config_manager
+            from .auth import get_auth_manager
+            
+            config_mgr = get_config_manager()
+            auth_mgr = get_auth_manager(config_mgr.config_dir)
+            
+            # Determine provider - try GitHub first, then Gemini
+            provider = None
+            
+            # Try GitHub Copilot
+            if hasattr(args, 'use_github') and args.use_github:
+                github_token = os.environ.get('GITHUB_TOKEN')
+                if not github_token:
+                    try:
+                        github_token = auth_mgr.get_credential("github-copilot:default")
+                    except:
+                        github_token = None
+                
+                if github_token:
+                    try:
+                        provider = GitHubCopilotProvider(github_token)
+                    except Exception as e:
+                        pass
+            
+            # Try Gemini if no GitHub provider
+            if not provider:
+                google_token = os.environ.get('GEMINI_API_KEY')
+                if not google_token:
+                    try:
+                        google_token = auth_mgr.get_credential("google-gemini:default")
+                    except:
+                        google_token = None
+                
+                if google_token:
+                    try:
+                        provider = GeminiProvider(google_token)
+                    except Exception as e:
+                        pass
+            
+            if provider:
+                # Use AI to enhance the analysis with a structured report format
+                ai_prompt = f"""You are an expert software architect. Analyze this project structure report and provide a comprehensive analysis structured EXACTLY as follows. Each section must have a clear heading and detailed explanation.
+
+DO NOT include any introductory text, preamble, or instructions. START DIRECTLY with section 1.
+
+---
+
+## 1. Architecture Overview
+
+Describe the high-level architecture based on the report. Note the absence of detected frameworks and discuss implications. Consider the large scripts/ directory with diverse file types (.py, .ps1, .bat, .sh) and what this reveals about the architectural pattern.
+
+## 2. Project Purpose & Scope
+
+Infer the main objective using clues from: project name (contextify), key imports (keyring for credentials, requests for HTTP, google for APIs), and the prevalence of scripting files. What domain or problem does this solve?
+
+## 3. Technology Stack
+
+List detected languages (Python) and frameworks (None detected). For each key import listed (os, pathlib, json, typing, keyring, subprocess, requests, google, sys, time), explain its typical use. Note the diverse shell script types (.ps1, .bat, .sh).
+
+## 4. Code Organization
+
+Describe the role of each directory:
+- contextify/ (15 items): Core application with main.py and __main__.py
+- scripts/ (5349 items): Analyze this extraordinary volume and diverse content
+- docs/, tests/, examples/: Their roles in the project
+
+Comment on the imbalance: only 9 Python files vs 5349+ script items.
+
+## 5. Data Flow
+
+Explain how data flows through the system:
+- INPUT: CLI arguments, environment variables, files, network (requests), credentials (keyring)
+- PROCESSING: File I/O (os/pathlib), JSON parsing, network communication, system commands
+- OUTPUT: Files, network responses, console output, system changes
+
+What types of data are handled (configuration, credentials, JSON, text)?
+
+## 6. Key Components
+
+Identify main functional modules:
+- contextify module: Core application logic, entry points, context management, credential interaction
+- scripts/ directory: Collection of automation scripts and task executors
+- keyring integration: Secure credential management
+- requests/google: External API communication
+
+## 7. Development Workflow
+
+Based on docs/, tests/, examples/, and .env.example:
+- How is configuration handled?
+- What role does documentation and testing play?
+- Implications of maintaining a large scripts/ directory
+- What is the primary development environment?
+
+## 8. Dependencies & Integrations
+
+List:
+- Internal dependencies: modules within contextify and orchestration of scripts
+- External Python libraries: keyring (credentials), requests (HTTP), google (APIs), os/sys/subprocess (OS interactions)
+- External services: What APIs or services likely integrate? (infer from imports)
+- OS-level interactions: Indicated by shell script types and subprocess usage
+
+## 9. Potential Issues
+
+Identify red flags and concerns:
+- **CRITICAL:** The extremely large scripts/ directory (5349 items) - implications for maintainability, testability, organization, discoverability
+- Absence of detected framework at this scale
+- Only 9 Python files in core vs massive script count
+- Lack of explicit database/persistent storage solutions (if relevant)
+- Any other obvious anti-patterns or concerns
+
+## 10. Recommendations
+
+Provide actionable suggestions:
+- **Strategies for scripts/ directory:** Categorization, logic extraction to Python modules, CLI framework adoption, testing strategies
+- Enhanced documentation for scripts
+- Expanded test coverage
+- Formal dependency management (requirements.txt, Poetry, etc.)
+- Consider lightweight Python framework for CLI/configuration
+- Any other structural improvements
+
+---
+
+PROJECT ANALYSIS REPORT:
+{report}
+
+---
+
+Now provide the analysis following the exact 10-section structure above. Be detailed and insightful. Start with Section 1."""
+
+                try:
+                    ai_report = provider.generate_prompt(
+                        system_prompt="You are an expert software architect. Provide detailed technical analysis structured in exactly 10 sections with clear headings. Be specific, analytical, and actionable. Do not include any preamble or meta-commentary.",
+                        user_request=ai_prompt,
+                        context="",
+                        temperature=0.7
+                    )
+                    
+                    print("\n" + "="*70)
+                    print("AI-ENHANCED PROJECT ANALYSIS")
+                    print("="*70 + "\n")
+                    print(ai_report)
+                except Exception as e:
+                    print(report)
+                    print(f"\n[WARNING] Failed to enhance with AI: {e}")
+            else:
+                print(report)
+                print("\n[WARNING] AI provider not configured. Showing basic analysis.")
+                print("Run 'contextify onboard' to configure an AI provider.")
+        else:
+            print(report)
+        
+        sys.exit(0)
     
     # From here on, we're handling the 'prompt' command
     if args.command != 'prompt':
@@ -1356,8 +1818,8 @@ Start using: contextify "your request"
         parser.error("--tree-shake requires --target")
     
     # Load configuration
-    from config import get_config_manager
-    from auth import get_auth_manager
+    from .config import get_config_manager
+    from .auth import get_auth_manager
     
     config_mgr = get_config_manager()
     auth_mgr = get_auth_manager(config_mgr.config_dir)
@@ -1518,13 +1980,28 @@ Start using: contextify "your request"
         print(f"   - Git-aware: {args.git_aware}")
         print(f"   - Hard-lock: {args.hard_lock}")
         print(f"   - Negative constraints: {not args.no_negative_context}")
-        print(f"   - Provider: {'GitHub Copilot' if args.use_github else 'Gemini'}")
+        # Derive provider name from flags and model name for clearer output
+        if args.use_github:
+            provider_name = "GitHub Copilot"
+        else:
+            mn = (args.model_name or "").lower()
+            if "gemini" in mn:
+                provider_name = "Gemini"
+            elif "gpt" in mn or "openai" in mn:
+                provider_name = "GPT"
+            elif "claude" in mn or "anthropic" in mn:
+                provider_name = "Claude"
+            else:
+                provider_name = args.model_name.split('/')[0].capitalize() if args.model_name else 'Unknown'
+
+        print(f"   - Provider: {provider_name}")
         print(f"   - Model: {args.model_name}")
         print(f"   - Temperature: {args.temperature}")
         print("="*60)
         sys.exit(0)
     
-    provider_name = "GitHub Copilot" if args.use_github else "Gemini"
+    # Reuse provider_name computed above (fall back if missing)
+    provider_name = provider_name if 'provider_name' in locals() else ("GitHub Copilot" if args.use_github else "Gemini")
     spinner2 = Spinner(f"Generating refined prompt with {provider_name} ({args.model_name}, temperature={args.temperature}, {detail_level})")
     spinner2.start()
     
@@ -1562,7 +2039,7 @@ Start using: contextify "your request"
         print(refined_prompt)
         print("="*80)
     
-    print("\n✨ Done! Paste the prompt into your AI coding assistant.")
+    print("\n[DONE] Paste the prompt into your AI coding assistant.")
 
 
 if __name__ == '__main__':

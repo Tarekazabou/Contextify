@@ -1,2 +1,2 @@
 @echo off
-python "%~dp0..\contextify.py" %*
+python -m contextify.main %*

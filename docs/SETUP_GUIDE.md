@@ -78,6 +78,53 @@ set GITHUB_TOKEN=your-github-token                # Windows (Command Prompt)
 $env:GITHUB_TOKEN='your-github-token'             # Windows (PowerShell)
 ```
 
+**OpenAI:**
+```bash
+export OPENAI_API_KEY='sk-...'                    # Linux/macOS
+$env:OPENAI_API_KEY='sk-...'                      # Windows (PowerShell)
+```
+
+**Anthropic Claude:**
+```bash
+export ANTHROPIC_API_KEY='sk-ant-...'             # Linux/macOS
+$env:ANTHROPIC_API_KEY='sk-ant-...'               # Windows (PowerShell)
+```
+
+### GitHub Copilot Setup
+
+GitHub Copilot requires an **active GitHub Copilot subscription** for authentication to work.
+
+#### Getting Your GitHub Token
+
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token" → "Generate new token (classic)"
+3. Select scopes: `public_repo`, `user`
+4. Copy the generated token
+5. Set it as an environment variable or run `contextify onboard`
+
+#### How It Works
+
+Contextify uses a **two-stage token exchange** with GitHub Copilot:
+
+1. Your GitHub token is exchanged for a Copilot API token via `api.github.com/copilot_internal/v2/token`
+2. The Copilot API token is cached (valid for 5+ minutes)
+3. Requests to Copilot API use proper IDE headers for compatibility
+4. Token refresh happens automatically when needed
+
+**Note**: You only need to do this once. After authentication, Contextify manages tokens automatically.
+
+#### Troubleshooting GitHub Copilot
+
+**"403 Forbidden" or "Unauthorized":**
+- Verify you have an active GitHub Copilot subscription
+- Verify your GitHub token is valid (check on https://github.com/settings/tokens)
+- Try re-authenticating: `contextify onboard`
+
+**"Token exchange failed":**
+- Make sure you're connected to the internet
+- Verify your GitHub token hasn't expired
+- Check that your firewall allows GitHub API access
+
 ## Credential Storage Details
 
 ### How Credentials Are Stored

@@ -5,11 +5,36 @@ Guides users through provider setup and model selection.
 """
 
 import sys
+import os
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from config import ConfigManager, get_config_manager
-from auth import AuthManager, get_auth_manager
-from providers import ProviderRegistry, ProviderType
+from .config import ConfigManager, get_config_manager
+from .auth import AuthManager, get_auth_manager
+from .providers import ProviderRegistry, ProviderType
+
+
+# Windows-safe print function to handle Unicode
+def safe_print(text: str) -> None:
+    """Print text with fallback for Windows encoding issues."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # Replace problematic characters with ASCII equivalents
+        replacements = {
+            '📋': '[CONFIG]',
+            '📦': '[STEP]',
+            '🔐': '[AUTH]',
+            '🔍': '[SEARCH]',
+            '💾': '[SAVE]',
+            '✓': '[OK]',
+            '✗': '[X]',
+        }
+        for emoji, replacement in replacements.items():
+            text = text.replace(emoji, replacement)
+        try:
+            print(text.encode('ascii', 'replace').decode('ascii'))
+        except:
+            print(text.encode('cp1252', 'replace').decode('cp1252'))
 
 
 class OnboardingWizard:
@@ -34,7 +59,7 @@ class OnboardingWizard:
         
         # Step 1: Show existing config
         if self.config.has_valid_config():
-            print("📋 Current Configuration:")
+            safe_print("📋 Current Configuration:")
             current_model = self.config.get_default_model()
             print(f"   Default Model: {current_model}")
             choice = self._prompt_choice(
@@ -76,7 +101,7 @@ class OnboardingWizard:
     
     def _select_provider(self) -> bool:
         """Step 2: Select a provider."""
-        print("\n📦 Step 1: Select Provider")
+        safe_print("\n📦 Step 1: Select Provider")
         print("-" * 70)
         
         providers = [
@@ -99,14 +124,14 @@ class OnboardingWizard:
         provider_info = ProviderRegistry.PROVIDER_INFO.get(ProviderType(choice))
         
         if provider_info:
-            print(f"\n✓ Selected: {provider_info['name']}")
+            safe_print(f"\n✓ Selected: {provider_info['name']}")
             print(f"  {provider_info['description']}")
         
         return True
     
     def _authenticate_provider(self) -> bool:
         """Step 3: Authenticate with the selected provider."""
-        print("\n🔐 Step 2: Authentication")
+        safe_print("\n🔐 Step 2: Authentication")
         print("-" * 70)
         
         provider = self.selected_provider
@@ -129,14 +154,14 @@ class OnboardingWizard:
         print("\nRunning GitHub device-flow authentication...")
         print("(You'll need to authorize this in your web browser)\n")
         
-        from contextify import GitHubCopilotProvider
+        from .main import GitHubCopilotProvider
         
         try:
             provider = GitHubCopilotProvider()
             self.auth_token = provider.github_token
             
             if self.auth_token:
-                print("\n✓ GitHub Copilot authentication successful!")
+                safe_print("\n✓ GitHub Copilot authentication successful!")
                 
                 # Save profile
                 profile_name = "github-copilot:default"
@@ -150,10 +175,10 @@ class OnboardingWizard:
                 print(f"  Profile saved: {profile_name}")
                 return True
             else:
-                print("\n✗ GitHub authentication failed or was cancelled.")
+                safe_print("\n✗ GitHub authentication failed or was cancelled.")
                 return False
         except Exception as e:
-            print(f"\n✗ Authentication error: {e}")
+            safe_print(f"\n✗ Authentication error: {e}")
             return False
     
     def _auth_api_key(self, provider: str, env_var: str, get_key_url: str) -> bool:
@@ -188,7 +213,7 @@ class OnboardingWizard:
             "api-key",
             self.auth_token
         )
-        print(f"✓ Profile saved: {profile_name}")
+        safe_print(f"✓ Profile saved: {profile_name}")
         return True
     
     def _auth_local_proxy(self) -> bool:
@@ -233,7 +258,7 @@ class OnboardingWizard:
     
     def _discover_and_select_model(self) -> bool:
         """Step 4: Discover and select a model."""
-        print("\n🤖 Step 3: Model Selection")
+        safe_print("\n🤖 Step 3: Model Selection")
         print("-" * 70)
         
         print("Discovering available models...")
@@ -245,10 +270,10 @@ class OnboardingWizard:
         )
         
         if not models:
-            print("✗ Could not discover models.")
+            safe_print("✗ Could not discover models.")
             return False
         
-        print(f"✓ Found {len(models)} available models:\n")
+        safe_print(f"✓ Found {len(models)} available models:\n")
         
         # Build choice list
         choices = [
@@ -265,12 +290,12 @@ class OnboardingWizard:
             return False
         
         self.selected_model = f"{self.selected_provider}/{selected_id}"
-        print(f"\n✓ Selected: {self.selected_model}")
+        safe_print(f"\n✓ Selected: {self.selected_model}")
         return True
     
     def _test_connectivity(self) -> bool:
         """Step 5: Test connectivity to the selected provider."""
-        print("\n🧪 Step 4: Testing Connectivity")
+        safe_print("\n🧪 Step 4: Testing Connectivity")
         print("-" * 70)
         
         # Simple connectivity test
@@ -283,14 +308,14 @@ class OnboardingWizard:
         
         # For cloud providers, just verify token exists
         if self.auth_token:
-            print(f"  ✓ Authentication token is configured")
+            safe_print(f"  ✓ Authentication token is configured")
             return True
         
         return False
     
     def _save_configuration(self) -> bool:
         """Step 6: Save configuration."""
-        print("\n💾 Step 5: Saving Configuration")
+        safe_print("\n💾 Step 5: Saving Configuration")
         print("-" * 70)
         
         # Set model config
@@ -304,16 +329,16 @@ class OnboardingWizard:
         
         # Save config file
         if self.config.save_config():
-            print(f"✓ Config saved to: {self.config.config_file}")
+            safe_print(f"✓ Config saved to: {self.config.config_file}")
             return True
         else:
-            print("✗ Failed to save config")
+            safe_print("✗ Failed to save config")
             return False
     
     def _show_summary(self) -> None:
         """Step 7: Show summary."""
         print("\n" + "="*70)
-        print("  ✓ ONBOARDING COMPLETE!")
+        safe_print("  ✓ ONBOARDING COMPLETE!")
         print("="*70)
         print(f"\nDefault Model: {self.selected_model}")
         print(f"Config Location: {self.config.config_file}")

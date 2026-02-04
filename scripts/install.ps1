@@ -51,7 +51,7 @@ Show-Spinner "Setting up CLI launcher" 600
 
 @"
 @echo off
-python "%~dp0..\contextify.py" %*
+python -m contextify.main %*
 "@ | Out-File -Encoding ASCII $batchPath
 
 Write-Success "contextify.bat created"
@@ -64,7 +64,9 @@ Write-Host ""
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $projectRoot = Split-Path $scriptDir -Parent
 
-& $pythonCmd "$projectRoot\contextify.py" onboard
+# Add project root to PYTHONPATH for module discovery
+$env:PYTHONPATH = $projectRoot
+& $pythonCmd -m contextify.main onboard
 
 Write-Host ""
 Write-Success "Installation complete"

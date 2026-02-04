@@ -187,7 +187,7 @@ def get_auth_manager(config_dir: Optional[Path] = None) -> AuthManager:
     global _auth_manager
     if _auth_manager is None:
         if config_dir is None:
-            from config import get_config_dir
+            from .config import get_config_dir
             config_dir = get_config_dir()
         _auth_manager = AuthManager(config_dir)
     return _auth_manager

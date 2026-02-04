@@ -14,32 +14,29 @@ fi
 echo "📦 Installing Python dependencies..."
 pip3 install -r requirements.txt --break-system-packages
 
-# Make the script executable
-chmod +x contextify.py
-
 # Try to add to PATH
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
-# Create symlink - note: scripts/ directory is in the parent
-ln -sf "$(cd .. && pwd)/contextify.py" "$INSTALL_DIR/contextify"
+# Create wrapper script for module execution
+cat > "$INSTALL_DIR/contextify" << 'EOF'
+#!/bin/bash
+python3 -m contextify.main "$@"
+EOF
+chmod +x "$INSTALL_DIR/contextify"
 
 echo ""
 echo "✅ Installation complete!"
 echo ""
 echo "📝 Next steps:"
-echo "1. Get your Gemini API key from: https://makersuite.google.com/app/apikey"
-echo "2. Set the environment variable:"
-echo "   export GEMINI_API_KEY='your-api-key-here'"
+echo "1. Run the interactive setup:"
+echo "   contextify onboard"
 echo ""
-echo "   Add this to your ~/.bashrc or ~/.zshrc to make it permanent:"
-echo "   echo 'export GEMINI_API_KEY=\"your-api-key-here\"' >> ~/.bashrc"
-echo ""
-echo "3. Make sure $INSTALL_DIR is in your PATH"
+echo "2. Make sure $INSTALL_DIR is in your PATH"
 echo "   Add this to your ~/.bashrc or ~/.zshrc if needed:"
 echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
 echo ""
-echo "4. Restart your terminal or run: source ~/.bashrc"
+echo "3. Restart your terminal or run: source ~/.bashrc"
 echo ""
 echo "🎉 Usage:"
 echo "   contextify 'add a dark mode toggle'"

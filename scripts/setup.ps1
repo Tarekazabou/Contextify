@@ -48,7 +48,7 @@ $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 @"
 @echo off
-python "%~dp0..\contextify.py" %*
+python -m contextify.main %*
 "@ | Out-File -Encoding ASCII "$scriptDir\contextify.bat"
 
 Write-Host "contextify.bat created" -ForegroundColor Green
@@ -58,7 +58,8 @@ Write-Host ""
 Write-Host "[4/4] Provider setup (interactive wizard)..." -ForegroundColor Yellow
 
 $projectRoot = Split-Path $PSScriptRoot -Parent
-& ./.venv/Scripts/python "$projectRoot\contextify.py" onboard
+$env:PYTHONPATH = $projectRoot
+& .\.venv\Scripts\python -m contextify.main onboard
 
 Write-Host ""
 Write-Host "SETUP COMPLETE" -ForegroundColor Green

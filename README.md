@@ -1,18 +1,18 @@
 # 🌉 Contextify - The Context Bridge for AI Coders
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/Tarekazabou/Contextify)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/Tarekazabou/Contextify)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 **Contextify** transforms vague coding requests into detailed, context-aware prompts that get you working code on the first try.
 
-## ✨ What's New in v1.1.0
+## ✨ What's New in v1.2.0
 
-- 🔐 **Auto-load `.env` files** - No more manual environment variable setup!
-- 🎯 **Dry-run mode** (`--dry-run`) - Preview context without API calls
-- 🎨 **Progress spinners** - Beautiful visual feedback during processing
-- 📊 **Version flag** (`--version`) - Check your Contextify version
-- 🚀 **Better UX** - Smoother workflow, clearer messages
+- 🔍 **Project Analysis** (`--analyze`) - Static analysis of project structure, architecture, and workflow
+- 🤖 **AI-Enhanced Analysis** (`--analyze --ai`) - AI-powered architectural insights and recommendations
+- 🔐 **GitHub Copilot Support** - Fixed two-stage authentication with proper IDE headers
+- 💾 **Multi-Provider Support** - GitHub Copilot, Google Gemini, OpenAI, Anthropic, Local Proxy
+- 🎨 **Smart Provider Detection** - Automatically selects the right AI provider based on configuration
 
 ## The Problem
 
@@ -78,6 +78,12 @@ contextify "add a dark mode toggle"
 # Focus on specific part of codebase
 contextify "create a user profile card" --focus frontend
 
+# Analyze your project structure
+contextify --analyze
+
+# Get AI-powered architectural analysis
+contextify --analyze --ai
+
 # Only look at changed files (great for bug fixes)
 contextify "fix the login bug" --changed
 
@@ -97,30 +103,25 @@ contextify "fix the build error" --git-aware
 ## 📁 Project Structure
 
 ```
-Contextify/
-├── README.md                    # Main documentation (you are here)
-├── LICENSE                      # MIT License
-├── requirements.txt             # Python dependencies
-├── contextify.py                # Main CLI application
-│
-├── docs/                        # Documentation
-│   ├── README.md                # Documentation landing page
-│   ├── QUICKSTART.md            # 3-step quick start guide
-│   ├── EXAMPLES.md              # 10+ real-world usage examples
-│   ├── WINDOWS.md               # Windows-specific installation guide
-│   └── CONTRIBUTING.md          # Contribution guidelines
-│
-├── scripts/                     # Installation & launcher scripts
-│   ├── install.sh              # Linux/Mac installation
-│   ├── install.ps1             # Windows detailed installation
-│   ├── setup.ps1               # Windows quick setup
-│   └── contextify.bat          # Windows batch launcher
-│
-├── tests/                       # Test suite
-│   └── simple_test.py          # Core logic tests
-│
-└── examples/                    # Configuration examples
-    └── .env.example            # Environment variables template
+contextify/
+├── contextify/          (source code)
+│   ├── __init__.py
+│   ├── contextify.py
+│   ├── auth.py
+│   ├── config.py
+│   ├── onboarding.py
+│   └── providers.py
+├── docs/               (documentation)
+├── scripts/            (setup/deployment scripts)
+├── tests/              (test files)
+├── examples/           (example usage)
+├── .env.example
+├── .gitignore
+├── LICENSE
+├── README.md
+├── CHANGELOG.md
+├── requirements.txt
+└── QUICK_REFERENCE.md
 ```
 
 **Get Started:**
@@ -200,6 +201,73 @@ Injects recently modified git files as an intent clue:
 ```bash
 contextify "fix the build error" --git-aware
 ```
+
+### 📊 Project Analysis Features
+
+**NEW in v1.2.0**: Analyze your project structure without generating a prompt.
+
+#### Static Analysis (`--analyze`)
+
+Get a detailed technical breakdown of your project:
+
+```bash
+contextify --analyze
+```
+
+Generates a report including:
+- **Architecture Overview** - Project structure and organization
+- **Technology Stack** - Detected languages, frameworks, libraries
+- **Entry Points** - Main application files identified
+- **Dependencies** - Import/dependency analysis
+- **Code Statistics** - File counts, LOC estimates
+- **Configuration** - Config files detected
+- **Dataflow** - Inferred application flow
+
+Perfect for:
+- Onboarding new team members
+- Understanding existing codebases
+- Technical documentation
+- Architecture reviews
+
+#### AI-Enhanced Analysis (`--analyze --ai`)
+
+Get AI-powered insights about your architecture:
+
+```bash
+contextify --analyze --ai
+```
+
+Uses your configured AI provider (GitHub Copilot, Google Gemini, etc.) to generate:
+- **Detailed Architecture Overview** - Complete system design explanation
+- **Project Purpose & Scope** - What the project does and why
+- **Technology Stack Assessment** - Why these technologies were chosen
+- **Code Organization Analysis** - Directory structure and design patterns
+- **Data Flow Explanation** - How data moves through the system
+- **Key Components** - Important files and their responsibilities
+- **Development Workflow** - How to work with the codebase
+- **Dependencies & Integrations** - External systems and libraries used
+- **Potential Issues** - Areas needing attention
+- **Recommendations** - Suggested improvements
+
+Example output:
+```
+# Project Analysis Report
+
+## 1. Architecture Overview
+This is a full-stack TypeScript/Node.js application using Next.js for the frontend...
+
+## 2. Project Purpose & Scope
+The application is an e-commerce platform designed to handle product listings, shopping carts,
+and payment processing...
+
+[... 8 more sections ...]
+```
+
+Perfect for:
+- AI-assisted architecture reviews
+- Deep codebase understanding
+- Team documentation
+- Planning refactoring efforts
 
 ### 🔒 Hard Lock Constraints
 
@@ -374,14 +442,76 @@ contextify "add feature"
 
 ## Configuration
 
+### AI Provider Setup
+
+Contextify supports multiple AI providers. Set up your preferred provider:
+
+#### Google Gemini (Recommended - Free Tier Available)
+
+1. Get your API key: https://aistudio.google.com/app/apikey
+2. Add to `.env`:
+```bash
+GEMINI_API_KEY=your-api-key
+```
+
+#### GitHub Copilot
+
+1. Requires active GitHub Copilot subscription
+2. Add to `.env`:
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+```
+
+The tool will automatically handle two-stage authentication:
+- Exchanges your GitHub token for a Copilot API token
+- Manages token caching and refresh
+- Includes proper IDE headers for compatibility
+
+#### OpenAI (GPT-4)
+
+```bash
+OPENAI_API_KEY=sk-xxxxxxxxxx
+```
+
+#### Anthropic Claude
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxx
+```
+
+#### Local Proxy / Self-Hosted
+
+```bash
+LOCAL_PROXY_URL=http://localhost:8000
+```
+
+**Provider Priority:**
+If multiple providers are configured, Contextify uses this order:
+1. GitHub Copilot (if GITHUB_TOKEN is set)
+2. Google Gemini (if GEMINI_API_KEY is set)
+3. OpenAI (if OPENAI_API_KEY is set)
+4. Anthropic (if ANTHROPIC_API_KEY is set)
+5. Local Proxy (if LOCAL_PROXY_URL is set)
+
+Use the `--model` flag to explicitly choose a provider:
+```bash
+contextify "your request" --model gemini-2.5-flash
+contextify "your request" --model gpt-4
+contextify "your request" --model claude-opus
+```
+
 ### Environment Variables
 
 ```bash
-# Required
-export GEMINI_API_KEY='your-api-key'
+# AI Configuration
+export GEMINI_API_KEY='your-api-key'           # Google Gemini
+export GITHUB_TOKEN='ghp_xxxxxxxxxxxx'         # GitHub Copilot
+export OPENAI_API_KEY='sk-xxxxxxxxxx'          # OpenAI GPT
+export ANTHROPIC_API_KEY='sk-ant-xxxxxxxxxx'   # Anthropic Claude
 
-# Optional: Change default max files
-export CONTEXTIFY_MAX_FILES=30
+# Contextify Options
+export CONTEXTIFY_MAX_FILES=30         # Max files to include in context
+export CONTEXTIFY_NO_CLIPBOARD=false   # Disable clipboard integration
 ```
 
 ### Custom Ignore Patterns
