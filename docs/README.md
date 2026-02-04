@@ -185,16 +185,18 @@ contextify "refactor auth" --no-negative-context
 
 ```
 Contextify/
-├── src/
-│   └── contextify.py          # Main CLI application
-├── tests/
-│   └── test_simple.py         # Test suite
-├── docs/
-│   ├── README.md              # This file
-│   ├── QUICKSTART.md          # 3-step quick start
-│   └── EXAMPLES.md            # Real-world usage examples
+├── contextify.py              # Main CLI application (rooted in repo)
+├── scripts/                   # Installation & launcher scripts
+│   ├── install.sh             # Linux/Mac installation
+│   ├── install.ps1            # Windows installation
+│   └── contextify.bat         # Windows launcher
+├── docs/                      # Documentation (you're here)
+│   ├── README.md
+│   ├── QUICKSTART.md
+│   └── EXAMPLES.md
+├── tests/                     # Test suite
+│   └── simple_test.py
 ├── requirements.txt           # Python dependencies
-├── install.sh                 # Installation script
 └── LICENSE                    # MIT License
 ```
 
