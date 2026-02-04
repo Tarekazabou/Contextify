@@ -128,6 +128,7 @@ Contextify/
 - Need examples? Check [docs/EXAMPLES.md](docs/EXAMPLES.md)
 - Windows user? See [docs/WINDOWS.md](docs/WINDOWS.md)
 - Want to contribute? Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
+- All flags explained: See [docs/FLAGS.md](docs/FLAGS.md)
 
 ## Features
 

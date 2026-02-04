@@ -193,7 +193,8 @@ Contextify/
 ├── docs/                      # Documentation (you're here)
 │   ├── README.md
 │   ├── QUICKSTART.md
-│   └── EXAMPLES.md
+│   ├── EXAMPLES.md
+│   └── FLAGS.md               # CLI flags reference
 ├── tests/                     # Test suite
 │   └── simple_test.py
 ├── requirements.txt           # Python dependencies
