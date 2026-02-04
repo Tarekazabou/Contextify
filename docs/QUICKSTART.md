@@ -72,6 +72,21 @@ contextify "fix the login bug" --changed
 contextify "major refactor" --output prompt.md
 ```
 
+### Target a Specific File or Function
+```bash
+contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+```
+
+### Minimal Context for a Target
+```bash
+contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+```
+
+### Add Git-Aware Hints
+```bash
+contextify "fix the build error" --git-aware
+```
+
 ## Real Examples
 
 ### Example 1: Adding a Component

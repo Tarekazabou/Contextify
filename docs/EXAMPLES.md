@@ -142,6 +142,35 @@ contextify "update the checkout flow" --focus frontend --max-files 20
 contextify "fix issues from the last commit" --changed
 ```
 
+## Example 11: Targeted Context (Single File)
+
+```bash
+contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+```
+
+**Why it helps:**
+- Fully includes the target file
+- Adds a constraint to stay inside `calculateTotal`
+
+## Example 12: Minimal Dependency Context
+
+```bash
+contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+```
+
+**Why it helps:**
+- Only includes direct dependencies of the target
+- Strips non-target implementations for a lean prompt
+
+## Example 13: Git-Aware Hints
+
+```bash
+contextify "fix the build error" --git-aware
+```
+
+**Why it helps:**
+- Adds recently modified files as an intent clue
+
 ## Pro Tips
 
 ### 1. Use Focus Modes Aggressively

@@ -7,6 +7,7 @@ Generates detailed, context-aware prompts for GitHub Copilot and other AI coders
 import os
 import sys
 import json
+import re
 import subprocess
 import argparse
 import pathspec
@@ -176,7 +177,7 @@ class ContextGatherer:
         return False
     
     def get_changed_files(self) -> Set[Path]:
-        """Get files changed in git (uncommitted)."""
+        """Get files changed in git (uncommitted vs HEAD)."""
         try:
             result = subprocess.run(
                 ['git', 'diff', '--name-only', 'HEAD'],
@@ -190,6 +191,35 @@ class ContextGatherer:
         except:
             pass
         return set()
+
+    def get_git_activity_files(self) -> Set[Path]:
+        """Get recently modified files (staged + unstaged)."""
+        files = set()
+        try:
+            unstaged = subprocess.run(
+                ['git', 'diff', '--name-only'],
+                cwd=self.root,
+                capture_output=True,
+                text=True
+            )
+            if unstaged.returncode == 0:
+                files.update({self.root / f for f in unstaged.stdout.strip().split('\n') if f})
+        except:
+            pass
+
+        try:
+            staged = subprocess.run(
+                ['git', 'diff', '--name-only', '--cached'],
+                cwd=self.root,
+                capture_output=True,
+                text=True
+            )
+            if staged.returncode == 0:
+                files.update({self.root / f for f in staged.stdout.strip().split('\n') if f})
+        except:
+            pass
+
+        return files
     
     def gather_file_tree(self, focus: Optional[str] = None, 
                         changed_only: bool = False) -> str:
@@ -308,54 +338,184 @@ class ContextGatherer:
             style['patterns'].append('Prefers arrow functions')
         
         return style
+
+    def get_tech_constraints(self) -> List[str]:
+        """Derive strict environment constraints from config files."""
+        constraints = []
+
+        package_json = self.root / 'package.json'
+        if package_json.exists():
+            try:
+                with open(package_json) as f:
+                    data = json.load(f)
+                    deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
+
+                    def add_dep_constraint(name: str, label: str):
+                        if name in deps:
+                            constraints.append(f"{label}: {deps[name]}")
+
+                    add_dep_constraint('next', 'Framework (Next.js)')
+                    add_dep_constraint('react', 'Library (React)')
+                    add_dep_constraint('tailwindcss', 'Styling (Tailwind CSS)')
+                    add_dep_constraint('typescript', 'Language (TypeScript)')
+
+                    next_ver = deps.get('next')
+                    tailwind_ver = deps.get('tailwindcss')
+                    ts_ver = deps.get('typescript')
+
+                    next_major = self._parse_major_version(next_ver)
+                    if next_major and next_major < 13:
+                        constraints.append("Do NOT use Next 13+ App Router features")
+
+                    tailwind_major = self._parse_major_version(tailwind_ver)
+                    if tailwind_major and tailwind_major < 3:
+                        constraints.append("Do NOT use Tailwind v3-only features (e.g., arbitrary values)")
+
+                    if ts_ver:
+                        constraints.append("Avoid TypeScript features beyond the installed version")
+            except:
+                pass
+
+        requirements = self.root / 'requirements.txt'
+        if requirements.exists():
+            try:
+                with open(requirements) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if 'django' in line.lower():
+                            constraints.append(f"Framework (Django): {line}")
+                        if 'flask' in line.lower():
+                            constraints.append(f"Framework (Flask): {line}")
+            except:
+                pass
+
+        pyproject = self.root / 'pyproject.toml'
+        if pyproject.exists():
+            try:
+                with open(pyproject) as f:
+                    content = f.read()
+                match = re.search(r"requires-python\s*=\s*['\"]([^'\"]+)['\"]", content)
+                if match:
+                    constraints.append(f"Python Version: {match.group(1)}")
+            except:
+                pass
+
+        return constraints
+
+    def get_negative_constraints(self, target_file: Optional[str], scope_function: Optional[str] = None) -> List[str]:
+        """Generate negative constraints based on file patterns and scope."""
+        constraints = []
+
+        if target_file:
+            path = target_file.replace('\\', '/').lower()
+            if any(token in path for token in ['test', 'spec', '__tests__', 'e2e']):
+                constraints.append("Test file: Do NOT change the testing library or framework")
+            if any(token in path for token in ['legacy', 'deprecated', 'old']):
+                constraints.append("Legacy file: Do NOT refactor names or restructure existing code")
+
+        if scope_function:
+            constraints.append(f"Scope: ONLY modify the `{scope_function}` function. Leave the rest unchanged")
+
+        return constraints
+
+    def _parse_major_version(self, version: Optional[str]) -> Optional[int]:
+        if not version:
+            return None
+        match = re.search(r"(\d+)", str(version))
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except:
+            return None
     
-    def get_important_files(self, focus: Optional[str] = None, 
+    def get_important_files(self, focus: Optional[str] = None,
                            changed_only: bool = False,
-                           max_files: int = 30) -> List[Dict[str, str]]:
-        """Get important file contents."""
+                           max_files: int = 30,
+                           target_file: Optional[str] = None,
+                           tree_shake: bool = False,
+                           git_aware_files: Optional[Set[Path]] = None,
+                           skeleton_context: bool = False) -> List[Dict[str, str]]:
+        """Get important file contents with optional tree-shaking and skeletonization."""
         files_data = []
         changed_files = self.get_changed_files() if changed_only else set()
         focus_dirs = self.FOCUS_MAPPINGS.get(focus, []) if focus else []
-        
+        git_aware_files = git_aware_files or set()
+
+        selected_files: List[Path] = []
+        selected_set: Set[Path] = set()
+
+        def add_file(path: Path):
+            if not path or not path.exists():
+                return
+            if self._should_ignore(path):
+                return
+            if path in selected_set:
+                return
+            selected_files.append(path)
+            selected_set.add(path)
+
         # Priority 1: Config files
         for config in self.CONFIG_FILES:
             config_path = self.root / config
             if config_path.exists():
-                files_data.append(self._read_file(config_path))
-        
-        # Priority 2: Changed files
-        if changed_only and changed_files:
-            for file in list(changed_files)[:max_files]:
-                if file.suffix in self.CODE_EXTENSIONS:
-                    files_data.append(self._read_file(file))
-        
-        # Priority 3: Important code files
-        if len(files_data) < max_files:
-            for ext in self.CODE_EXTENSIONS:
-                for file in self.root.rglob(f'*{ext}'):
-                    if len(files_data) >= max_files:
-                        break
-                    
-                    if self._should_ignore(file):
-                        continue
-                    
-                    if focus_dirs:
-                        rel = file.relative_to(self.root)
-                        if not any(str(rel).startswith(d) for d in focus_dirs):
+                add_file(config_path)
+
+        # Priority 2: Target file and direct dependencies
+        target_path = self._resolve_target_path(target_file) if target_file else None
+        if target_path:
+            add_file(target_path)
+            if tree_shake:
+                for dep in self._get_direct_dependencies(target_path):
+                    add_file(dep)
+
+        # Priority 3: Git-aware files
+        for file in git_aware_files:
+            add_file(file)
+
+        if not tree_shake:
+            # Priority 4: Changed files
+            if changed_only and changed_files:
+                for file in list(changed_files)[:max_files]:
+                    if file.suffix in self.CODE_EXTENSIONS:
+                        add_file(file)
+
+            # Priority 5: Important code files
+            if len(selected_files) < max_files:
+                for ext in self.CODE_EXTENSIONS:
+                    for file in self.root.rglob(f'*{ext}'):
+                        if len(selected_files) >= max_files:
+                            break
+
+                        if self._should_ignore(file):
                             continue
-                    
-                    # Prioritize smaller, important-looking files
-                    if file.stat().st_size < 50000:  # < 50KB
-                        files_data.append(self._read_file(file))
-        
+
+                        if focus_dirs:
+                            rel = file.relative_to(self.root)
+                            if not any(str(rel).startswith(d) for d in focus_dirs):
+                                continue
+
+                        # Prioritize smaller, important-looking files
+                        if file.stat().st_size < 50000:  # < 50KB
+                            add_file(file)
+
+        # Build final file list with optional skeletonization
+        for file in selected_files[:max_files]:
+            is_target = target_path and file.resolve() == target_path.resolve()
+            files_data.append(self._read_file(file, skeletonize=(skeleton_context and not is_target)))
+
         return files_data[:max_files]
     
-    def _read_file(self, path: Path) -> Dict[str, str]:
-        """Read file content safely."""
+    def _read_file(self, path: Path, skeletonize: bool = False) -> Dict[str, str]:
+        """Read file content safely, optionally skeletonizing implementation details."""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 relative = path.relative_to(self.root)
+                if skeletonize and path.suffix in self.CODE_EXTENSIONS:
+                    content = self._skeletonize_content(path, content)
                 return {
                     'path': str(relative),
                     'content': content
@@ -365,6 +525,151 @@ class ContextGatherer:
                 'path': str(path.relative_to(self.root)),
                 'content': f'[Error reading file: {e}]'
             }
+
+    def _resolve_target_path(self, target_file: Optional[str]) -> Optional[Path]:
+        if not target_file:
+            return None
+        candidate = Path(target_file)
+        if not candidate.is_absolute():
+            candidate = (self.root / candidate).resolve()
+        if candidate.exists() and candidate.is_file():
+            return candidate
+        return None
+
+    def _get_direct_dependencies(self, file_path: Path) -> Set[Path]:
+        """Get direct import dependencies for a file (tree-shake)."""
+        deps: Set[Path] = set()
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except:
+            return deps
+
+        suffix = file_path.suffix.lower()
+        if suffix in {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue', '.svelte'}:
+            import_paths = set()
+            import_paths.update(re.findall(r"from\s+['\"](.*?)['\"]", content))
+            import_paths.update(re.findall(r"require\(['\"](.*?)['\"]\)", content))
+            import_paths.update(re.findall(r"import\s+['\"](.*?)['\"]", content))
+            for imp in import_paths:
+                resolved = self._resolve_relative_import(file_path, imp)
+                if resolved:
+                    deps.add(resolved)
+
+        if suffix == '.py':
+            for imp in re.findall(r"^\s*from\s+([\w\.]+)\s+import\s+", content, re.MULTILINE):
+                resolved = self._resolve_python_import(file_path, imp)
+                if resolved:
+                    deps.add(resolved)
+            for imp in re.findall(r"^\s*import\s+([\w\.]+)", content, re.MULTILINE):
+                resolved = self._resolve_python_import(file_path, imp)
+                if resolved:
+                    deps.add(resolved)
+
+        return deps
+
+    def _resolve_relative_import(self, base_file: Path, import_path: str) -> Optional[Path]:
+        if not import_path.startswith('.'):
+            return None
+        base_dir = base_file.parent
+        candidate = (base_dir / import_path).resolve()
+        extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.scss', '.sass', '.less']
+
+        if candidate.is_file():
+            return candidate
+
+        for ext in extensions:
+            candidate_with_ext = Path(str(candidate)).with_suffix(ext)
+            if candidate_with_ext.exists():
+                return candidate_with_ext
+
+        if candidate.is_dir():
+            for ext in extensions:
+                index_file = candidate / f'index{ext}'
+                if index_file.exists():
+                    return index_file
+
+        return None
+
+    def _resolve_python_import(self, base_file: Path, module_path: str) -> Optional[Path]:
+        if module_path.startswith('.'):
+            module_path = module_path.lstrip('.')
+        parts = module_path.split('.')
+        rel_path = Path(*parts)
+        candidate = (self.root / rel_path).resolve()
+
+        if (candidate.with_suffix('.py')).exists():
+            return candidate.with_suffix('.py')
+        if (candidate / '__init__.py').exists():
+            return candidate / '__init__.py'
+        return None
+
+    def _skeletonize_content(self, path: Path, content: str) -> str:
+        suffix = path.suffix.lower()
+        if suffix == '.py':
+            return self._skeletonize_python(content)
+        if suffix in {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue', '.svelte'}:
+            return self._skeletonize_js_ts(content)
+        return content
+
+    def _skeletonize_python(self, content: str) -> str:
+        lines = content.splitlines()
+        output = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                output.append(line)
+            elif stripped.startswith('@'):
+                output.append(line)
+            elif stripped.startswith('class ') or stripped.startswith('def '):
+                output.append(line)
+                indent = re.match(r"^(\s*)", line).group(1)
+                output.append(f"{indent}    ...")
+        return "\n".join(output) if output else "# Skeleton unavailable"
+
+    def _skeletonize_js_ts(self, content: str) -> str:
+        lines = content.splitlines()
+        output = []
+        skip_depth = 0
+
+        signature_patterns = [
+            r"^(export\s+)?(async\s+)?function\s+\w+\s*\(",
+            r"^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s*)?\(",
+            r"^(export\s+)?class\s+\w+",
+            r"^(public|private|protected)?\s*\w+\s*\(.*\)\s*:\s*",
+            r"^constructor\s*\(",
+            r"^(export\s+)?type\s+\w+\s*=",
+            r"^(export\s+)?interface\s+\w+",
+            r"^(export\s+)?enum\s+\w+",
+        ]
+
+        def is_signature(line: str) -> bool:
+            stripped = line.strip()
+            return any(re.match(pat, stripped) for pat in signature_patterns)
+
+        for line in lines:
+            stripped = line.strip()
+
+            if stripped.startswith('import ') or (stripped.startswith('export ') and 'from' in stripped):
+                output.append(line)
+                continue
+
+            if is_signature(line):
+                sig = line
+                if '{' in sig:
+                    sig = sig.split('{')[0].rstrip() + ';'
+                elif sig.rstrip().endswith(')'):
+                    sig = sig.rstrip() + ';'
+                output.append(sig)
+                if '{' in line:
+                    skip_depth += line.count('{') - line.count('}')
+                continue
+
+            if skip_depth > 0:
+                skip_depth += line.count('{') - line.count('}')
+                continue
+
+        return "\n".join(output) if output else "// Skeleton unavailable"
 
 
 class PromptGenerator:
@@ -415,6 +720,18 @@ Format your response as a complete, copy-paste ready prompt."""
             if style_desc:
                 context_parts.append("## Detected Code Style\n" + "\n".join(style_desc) + "\n")
         
+        if context.get('git_clues'):
+            clues = "\n".join([f"- {p}" for p in context['git_clues']])
+            context_parts.append("## Contextual Clues (Git Activity)\n" + clues + "\n")
+
+        if context.get('hard_lock'):
+            constraints = "\n".join([f"- {c}" for c in context['hard_lock']])
+            context_parts.append("## Environment Constraints (Strict)\n" + constraints + "\n")
+
+        if context.get('negative_constraints'):
+            negatives = "\n".join([f"- {c}" for c in context['negative_constraints']])
+            context_parts.append("## Negative Constraints\n" + negatives + "\n")
+
         if include_file_contents and context['files']:
             context_parts.append(f"\n## Relevant Files ({len(context['files'])} files)\n")
             for file_data in context['files']:
@@ -454,6 +771,8 @@ Examples:
   contextify "create a user profile card" --focus frontend
   contextify "add database migration for posts" --focus database
   contextify "fix the bug" --changed
+    contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+    contextify "fix the build error" --git-aware
   contextify "refactor auth" --output prompt.md
   contextify "my request" --model-name gemini-2.5-flash
   contextify "my request" --temperature 0.3
@@ -463,6 +782,7 @@ Examples:
   contextify "my request" --simple
   contextify "my request" --detailed
   contextify "my request" --dry-run
+    contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
 
 Focus options: frontend, backend, database, config, tests
 Detail options: -s/--simple (no code), -d/--detailed (with code, default)
@@ -490,6 +810,20 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
                        help='Do not include the detected code style in the generated prompt')
     parser.add_argument('--exclude-patterns', type=str, nargs='*', default=[],
                        help='Glob patterns for files/directories to explicitly exclude from context gathering (e.g., "temp/*", "docs/")')
+    parser.add_argument('--target', type=str,
+                       help='Primary file to include fully (used for tree-shaking and skeleton context)')
+    parser.add_argument('--tree-shake', action='store_true',
+                       help='Include only direct dependencies of --target (minimal context)')
+    parser.add_argument('--skeleton-context', action='store_true',
+                       help='Strip implementations from non-target files (signatures only)')
+    parser.add_argument('--git-aware', action='store_true',
+                       help='Include recently modified git files and inject intent clue')
+    parser.add_argument('--hard-lock', action='store_true',
+                       help='Inject strict tech stack constraints from config files')
+    parser.add_argument('--no-negative-context', action='store_true',
+                       help='Disable negative constraints injection')
+    parser.add_argument('--scope-function', type=str,
+                       help='Limit changes to a specific function name (negative constraint)')
     
     # Add mutually exclusive group for detail level
     detail_group = parser.add_mutually_exclusive_group()
@@ -504,6 +838,9 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
 
     if not 0.0 <= args.temperature <= 1.0:
         parser.error("--temperature must be between 0.0 and 1.0")
+
+    if args.tree_shake and not args.target:
+        parser.error("--tree-shake requires --target")
     
     # Check for API key
     api_key = os.environ.get('GEMINI_API_KEY')
@@ -519,6 +856,18 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
     
     # Gather context
     gatherer = ContextGatherer(exclude_cli_patterns=args.exclude_patterns)
+
+    target_path = gatherer._resolve_target_path(args.target) if args.target else None
+    if args.target and not target_path:
+        parser.error("--target must point to an existing file relative to the project root")
+
+    git_aware_files = gatherer.get_git_activity_files() if args.git_aware else set()
+    git_clues = sorted([str(p.relative_to(gatherer.root)) for p in git_aware_files if p.exists()])
+
+    hard_lock = gatherer.get_tech_constraints() if args.hard_lock else []
+    negative_constraints = [] if args.no_negative_context else gatherer.get_negative_constraints(
+        args.target, scope_function=args.scope_function
+    )
     
     # Determine include_file_contents: simple mode excludes them, detailed (default) includes them
     include_file_contents = not args.simple  # True by default, False only if --simple is used
@@ -526,9 +875,20 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
     context = {
         'file_tree': gatherer.gather_file_tree(args.focus, args.changed) if not args.no_tree else "File tree omitted by --no-tree flag.",
         'style': gatherer.analyze_codebase_style() if not args.no_style else {},
-        'files': gatherer.get_important_files(args.focus, args.changed, args.max_files),
+        'files': gatherer.get_important_files(
+            args.focus,
+            args.changed,
+            args.max_files,
+            target_file=args.target,
+            tree_shake=args.tree_shake,
+            git_aware_files=git_aware_files,
+            skeleton_context=args.skeleton_context
+        ),
         'no_tree': args.no_tree,
-        'no_style': args.no_style
+        'no_style': args.no_style,
+        'git_clues': git_clues,
+        'hard_lock': hard_lock,
+        'negative_constraints': negative_constraints
     }
     
     spinner.stop()
@@ -565,6 +925,12 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
         print(f"\n⚙️  Settings:")
         print(f"   - Detail level: {detail_level}")
         print(f"   - Focus: {args.focus or 'all'}")
+        print(f"   - Target: {args.target or 'none'}")
+        print(f"   - Tree-shake: {args.tree_shake}")
+        print(f"   - Skeleton context: {args.skeleton_context}")
+        print(f"   - Git-aware: {args.git_aware}")
+        print(f"   - Hard-lock: {args.hard_lock}")
+        print(f"   - Negative constraints: {not args.no_negative_context}")
         print(f"   - Model: {args.model_name}")
         print(f"   - Temperature: {args.temperature}")
         print("="*60)

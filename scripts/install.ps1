@@ -3,6 +3,9 @@
 
 $ErrorActionPreference = "Stop"
 
+# Dot-source animation functions
+. "$PSScriptRoot\contextify-animation.ps1"
+
 function Write-Info($msg)    { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Write-Success($msg) { Write-Host "[OK]   $msg" -ForegroundColor Green }
 function Write-Warn($msg)    { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -32,6 +35,7 @@ Write-Success "Python found: $pythonCmd (v$pyVersion)"
 
 # Install dependencies
 Write-Info "Installing Python dependencies..."
+Show-Spinner "Installing dependencies" 1500
 & $pythonCmd -m pip install --upgrade pip --user
 & $pythonCmd -m pip install google-generativeai pyperclip pathspec --user
 
@@ -42,6 +46,8 @@ $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 # Create batch launcher
 $batchPath = Join-Path $scriptDir "contextify.bat"
+
+Show-Spinner "Setting up CLI launcher" 600
 
 @"
 @echo off

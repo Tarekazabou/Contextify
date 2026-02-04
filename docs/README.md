@@ -26,8 +26,8 @@ Contextify uses **Gemini's massive context window** (1M+ tokens) to:
 cd contextify
 
 # Run the installation script
-chmod +x install.sh
-./install.sh
+chmod +x scripts/install.sh
+./scripts/install.sh
 
 # Set your Gemini API key (get one from https://makersuite.google.com/app/apikey)
 export GEMINI_API_KEY='your-api-key-here'
@@ -114,6 +114,43 @@ contextify "create admin dashboard" --output dashboard-prompt.md
 ```bash
 contextify "refactor database layer" --no-clipboard
 # Prints to terminal instead of clipboard
+```
+
+### 🎯 Targeted Context (New Flags)
+
+Scope context tightly for precision fixes:
+
+- `--target <path>`: Fully include one primary file
+- `--tree-shake`: Only include direct dependencies of `--target`
+- `--skeleton-context`: Strip implementations from non-target files
+- `--scope-function <name>`: Add a “do not change outside this function” constraint
+
+**Examples:**
+```bash
+contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+```
+
+### 🧭 Git-Aware Hints
+
+Injects recently modified git files as an intent clue:
+
+```bash
+contextify "fix the build error" --git-aware
+```
+
+### 🔒 Hard Lock Constraints
+
+Enforces strict tech-stack constraints from config files:
+
+```bash
+contextify "refactor auth" --hard-lock
+```
+
+Disable negative constraints if needed:
+
+```bash
+contextify "refactor auth" --no-negative-context
 ```
 
 ## Architecture

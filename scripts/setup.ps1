@@ -1,6 +1,9 @@
 # Quick Setup for Contextify on Windows
 # Run with: .\setup.ps1
 
+# Dot-source animation functions
+. "$PSScriptRoot\contextify-animation.ps1"
+
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "           CONTEXTIFY QUICK SETUP            " -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
@@ -24,13 +27,18 @@ if (-not $python) {
 
 Write-Host "Found Python: $python" -ForegroundColor Green
 
+Show-Spinner "Creating virtual environment" 1000
+& $python -m venv .venv
+
+Show-Spinner "Installing dependencies" 1500
+& .\.venv\Scripts\pip install -r "$PSScriptRoot\..\requirements.txt"
+
+Show-Spinner "Setting up CLI launcher" 600
+
 # Step 2: Packages
 Write-Host ""
 Write-Host "[2/4] Installing packages..." -ForegroundColor Yellow
-& $python -m pip install --upgrade pip --quiet --user
-& $python -m pip install google-generativeai pyperclip pathspec --quiet --user
-
-Write-Host "Packages installed" -ForegroundColor Green
+Write-Host "Packages installed (venv)" -ForegroundColor Green
 
 # Step 3: Launcher
 Write-Host ""

@@ -63,6 +63,7 @@ chmod +x scripts/install.sh
 **That's it!** The `.env` file will be automatically loaded.
 
 # Use contextify
+```powershell
 .\scripts\contextify.bat "add a dark mode toggle"
 ```
 
@@ -82,6 +83,15 @@ contextify "fix the login bug" --changed
 
 # Save to file instead of clipboard
 contextify "refactor authentication" --output prompt.md
+
+# Target a specific file and function
+contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+
+# Minimal context (dependencies only) for a specific target
+contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+
+# Add recent git activity as a clue
+contextify "fix the build error" --git-aware
 ```
 
 ## 📁 Project Structure
@@ -120,7 +130,7 @@ contextify/
 
 ## Features
 
-### � New in v1.1.0
+### ✨ New in v1.1.0
 
 **Auto-load `.env` files:**
 ```bash
@@ -143,7 +153,7 @@ contextify --version
 # Output: contextify.py 1.1.0
 ```
 
-### �🎯 Intelligent Context Selection
+### 🎯 Intelligent Context Selection
 
 Use `--focus` to scan only relevant parts of your codebase:
 
@@ -164,6 +174,43 @@ Use `--changed` to only analyze files you're currently working on (based on `git
 
 ```bash
 contextify "fix the bug causing the crash" --changed
+```
+
+### 🎯 Targeted Context (New Flags)
+
+Use these to tightly scope context for precision fixes:
+
+- `--target <path>`: Fully include one primary file
+- `--tree-shake`: Only include direct dependencies of `--target`
+- `--skeleton-context`: Strip implementations from non-target files
+- `--scope-function <name>`: Add a “do not change outside this function” constraint
+
+**Examples:**
+```bash
+contextify "update totals" --target src/utils/calc.ts --scope-function calculateTotal
+contextify "fix bug in checkout" --target src/Checkout.tsx --tree-shake --skeleton-context
+```
+
+### 🧭 Git-Aware Hints
+
+Injects recently modified git files as an intent clue:
+
+```bash
+contextify "fix the build error" --git-aware
+```
+
+### 🔒 Hard Lock Constraints
+
+Enforces strict tech-stack constraints from config files:
+
+```bash
+contextify "refactor auth" --hard-lock
+```
+
+Disable negative constraints if needed:
+
+```bash
+contextify "refactor auth" --no-negative-context
 ```
 
 ### 🎨 Automatic Style Detection
