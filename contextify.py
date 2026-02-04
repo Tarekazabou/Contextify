@@ -75,38 +75,25 @@ def load_environment():
 
 
 class Spinner:
-    """Simple CLI spinner for better UX."""
+    """Simple CLI spinner for better UX - simplified to avoid threading issues"""
     
     def __init__(self, message="Processing"):
         self.message = message
         self.running = False
-        self.thread = None
     
     def start(self):
         """Start the spinner animation."""
         self.running = True
-        self.thread = threading.Thread(target=self._spin, daemon=True)
-        self.thread.start()
-    
-    def _spin(self):
-        """Internal method to animate spinner."""
-        chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        i = 0
-        while self.running:
-            sys.stdout.write(f"\r{chars[i % len(chars)]} {self.message}...")
-            sys.stdout.flush()
-            time.sleep(0.1)
-            i += 1
+        # Simplified: don't use threading to avoid deadlocks
+        print(f"  {self.message}...", end=' ', flush=True)
     
     def stop(self, final_message=None):
         """Stop the spinner."""
         self.running = False
-        if self.thread:
-            self.thread.join()
-        sys.stdout.write("\r" + " " * (len(self.message) + 10) + "\r")
-        sys.stdout.flush()
         if final_message:
             print(final_message)
+        else:
+            print("done!")
 
 
 class ContextGatherer:
@@ -224,7 +211,7 @@ class ContextGatherer:
     def gather_file_tree(self, focus: Optional[str] = None, 
                         changed_only: bool = False) -> str:
         """Generate a visual file tree."""
-        lines = [f"📁 {self.root.name}/"]
+        lines = [f"[DIR] {self.root.name}/"]
         
         focus_dirs = self.FOCUS_MAPPINGS.get(focus, []) if focus else []
         changed_files = self.get_changed_files() if changed_only else set()
@@ -253,10 +240,10 @@ class ContextGatherer:
                     continue
                 
                 is_last = i == len(items) - 1
-                current = "└── " if is_last else "├── "
-                extension = "    " if is_last else "│   "
+                current = "`-- " if is_last else "|-- "
+                extension = "    " if is_last else "|   "
                 
-                marker = "📁" if item.is_dir() else "📄"
+                marker = "[D]" if item.is_dir() else "[F]"
                 lines.append(f"{prefix}{current}{marker} {item.name}")
                 
                 if item.is_dir():
@@ -484,9 +471,19 @@ class ContextGatherer:
 
             # Priority 5: Important code files
             if len(selected_files) < max_files:
+                import itertools
                 for ext in self.CODE_EXTENSIONS:
+                    # Use itertools.islice to limit the search results
+                    files_found = 0
+                    max_files_per_ext = max_files - len(selected_files)
+                    
                     for file in self.root.rglob(f'*{ext}'):
                         if len(selected_files) >= max_files:
+                            break
+                        
+                        files_found += 1
+                        # Early exit if scanning too many files without finding enough matches
+                        if files_found > max_files * 20:  # Scan up to 20x max_files before giving up
                             break
 
                         if self._should_ignore(file):
@@ -845,7 +842,7 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
     # Check for API key
     api_key = os.environ.get('GEMINI_API_KEY')
     if not api_key and not args.dry_run:
-        print("❌ Error: GEMINI_API_KEY environment variable not set")
+        print("[ERROR] GEMINI_API_KEY environment variable not set")
         print("\nGet your API key from: https://makersuite.google.com/app/apikey")
         print("Then set it with: export GEMINI_API_KEY='your-key-here'")
         print("\nOr create a .env file with: GEMINI_API_KEY=your-key-here")
@@ -894,21 +891,21 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
     spinner.stop()
     
     detail_level = "simple (no code)" if args.simple else "detailed (with code)"
-    print(f"✅ Found {len(context['files'])} relevant files")
+    print(f"[+] Found {len(context['files'])} relevant files")
     if not args.no_style:
-        print(f"🎨 Detected: {context['style'].get('language', 'unknown')} with {context['style'].get('framework', 'no framework')}")
+        print(f"[STYLE] Detected: {context['style'].get('language', 'unknown')} with {context['style'].get('framework', 'no framework')}")
     
     # Handle dry-run mode
     if args.dry_run:
         print("\n" + "="*60)
-        print("🔍 DRY RUN - Context Preview")
+        print("[DRY RUN] Context Preview")
         print("="*60)
         
         if not args.no_tree:
-            print(f"\n📁 File Tree:\n{context['file_tree']}")
+            print(f"\n[FILE TREE]\n{context['file_tree']}")
         
         if not args.no_style and context['style']:
-            print(f"\n🎨 Code Style:")
+            print(f"\n[CODE STYLE]")
             for key, value in context['style'].items():
                 if value:
                     if isinstance(value, list):
@@ -916,13 +913,13 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
                     else:
                         print(f"   - {key.title()}: {value}")
         
-        print(f"\n📄 Files to include ({len(context['files'])}):")
+        print(f"\n[FILES] Files to include ({len(context['files'])})")
         for i, f in enumerate(context['files'][:10], 1):
             print(f"   {i}. {f['path']}")
         if len(context['files']) > 10:
             print(f"   ... and {len(context['files']) - 10} more")
         
-        print(f"\n⚙️  Settings:")
+        print(f"\n[SETTINGS]")
         print(f"   - Detail level: {detail_level}")
         print(f"   - Focus: {args.focus or 'all'}")
         print(f"   - Target: {args.target or 'none'}")
@@ -950,14 +947,14 @@ Detail options: -s/--simple (no code), -d/--detailed (with code, default)
         output_path = Path(args.output)
         with open(output_path, 'w') as f:
             f.write(refined_prompt)
-        print(f"✅ Prompt saved to: {output_path}")
+        print(f"[SUCCESS] Prompt saved to: {output_path}")
     
     if not args.no_clipboard:
         try:
             pyperclip.copy(refined_prompt)
-            print("📋 Prompt copied to clipboard!")
+            print("[CLIPBOARD] Prompt copied to clipboard!")
         except:
-            print("⚠️  Could not copy to clipboard (pyperclip not available)")
+            print("[WARNING] Could not copy to clipboard (pyperclip not available)")
             if not args.output:
                 print("\n" + "="*80)
                 print(refined_prompt)
