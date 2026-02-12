@@ -227,7 +227,7 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
 contextify "test request" --use-github --dry-run
 
 # 5. Verify imports
-python -c "import requests; import google.generativeai; print('✓ All dependencies OK')"
+python -c "import requests; import google.genai; print('✓ All dependencies OK')"
 ```
 
 ---

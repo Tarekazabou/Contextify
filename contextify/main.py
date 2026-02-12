@@ -25,10 +25,10 @@ except ImportError:
     load_dotenv = None
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
 except ImportError:
-    print("Error: google-generativeai package not found.")
-    print("Install it with: pip install google-generativeai")
+    print("Error: google-genai package not found.")
+    print("Install it with: pip install google-genai")
     sys.exit(1)
 
 try:

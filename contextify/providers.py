@@ -172,7 +172,7 @@ class ProviderRegistry:
     def _discover_gemini_models(api_key: str) -> Optional[List[Dict[str, Any]]]:
         """Discover Google Gemini models available to the user."""
         try:
-            import google.generativeai as genai
+            import google.genai as genai
             genai.configure(api_key=api_key)
             
             # List available models
