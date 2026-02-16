@@ -3,6 +3,10 @@
 echo "🚀 Installing Contextify - The Context Bridge for AI Coders"
 echo ""
 
+# Resolve project root from this script location so install works from any CWD
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
 # Check for Python
 if ! command -v python3 &> /dev/null; then
     echo "❌ Python 3 is required but not installed."
@@ -12,16 +16,18 @@ fi
 
 # Install dependencies
 echo "📦 Installing Python dependencies..."
-pip3 install -r requirements.txt --break-system-packages
+pip3 install -r "$PROJECT_ROOT/requirements.txt" --break-system-packages
 
 # Try to add to PATH
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
 # Create wrapper script for module execution
-cat > "$INSTALL_DIR/contextify" << 'EOF'
+cat > "$INSTALL_DIR/contextify" << EOF
 #!/bin/bash
-python3 -m contextify.main "$@"
+PROJECT_ROOT="$PROJECT_ROOT"
+export PYTHONPATH="$PROJECT_ROOT:\${PYTHONPATH:-}"
+python3 -m contextify.main "\$@"
 EOF
 chmod +x "$INSTALL_DIR/contextify"
 
