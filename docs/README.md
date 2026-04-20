@@ -177,7 +177,7 @@ contextify "refactor auth" --no-negative-context
 
 - Python 3.8+
 - Dependencies (installed by install.sh):
-  - `google-generativeai>=0.3.0` - Gemini API client
+  - `google-genai>=0.3.0` - Gemini API client
   - `pyperclip>=1.8.0` - Clipboard integration
   - `pathspec>=0.11.0` - .gitignore parsing
 

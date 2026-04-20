@@ -37,7 +37,7 @@ Write-Success "Python found: $pythonCmd (v$pyVersion)"
 Write-Info "Installing Python dependencies..."
 Show-Spinner "Installing dependencies" 1500
 & $pythonCmd -m pip install --upgrade pip --user
-& $pythonCmd -m pip install google-generativeai pyperclip pathspec python-dotenv requests keyring colorama --user
+& $pythonCmd -m pip install google-genai pyperclip pathspec python-dotenv requests keyring colorama --user
 
 Write-Success "Dependencies installed"
 

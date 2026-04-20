@@ -30,7 +30,7 @@
 
 2. **Install dependencies**:
    ```powershell
-   python -m pip install google-generativeai pyperclip pathspec --user
+   python -m pip install google-genai pyperclip pathspec --user
    ```
 
 3. **Set API key**:
@@ -175,7 +175,7 @@ $env:GEMINI_API_KEY='your-key'; .\scripts\contextify.bat 'your request'
 
 **Solution 1**: Use `--user` flag:
 ```powershell
-python -m pip install google-generativeai pyperclip pathspec --user
+python -m pip install google-genai pyperclip pathspec --user
 ```
 
 **Solution 2**: Run PowerShell as Administrator

@@ -86,7 +86,7 @@ try: import jwt except ImportError: jwt = None
 ```
 requests>=2.28.0
 ```
-(Plus existing: google-generativeai, pyperclip, pathspec, python-dotenv)
+(Plus existing: google-genai, pyperclip, pathspec, python-dotenv)
 
 ### `docs/GITHUB_INTEGRATION.md` (NEW - 215 lines)
 **Complete user guide covering:**

@@ -24,12 +24,24 @@ try:
 except ImportError:
     load_dotenv = None
 
-try:
-    import google.genai as genai
-except ImportError:
-    print("Error: google-genai package not found.")
-    print("Install it with: pip install google-genai")
-    sys.exit(1)
+genai = None
+
+
+def _get_genai_module():
+    """Lazy-load google.genai so non-AI flows (e.g., --dry-run) still work."""
+    global genai
+    if genai is not None:
+        return genai
+
+    try:
+        import google.genai as genai_module
+    except ImportError as exc:
+        raise ImportError(
+            "google-genai package not found. Install it with: pip install google-genai"
+        ) from exc
+
+    genai = genai_module
+    return genai
 
 try:
     import jwt
@@ -222,6 +234,13 @@ class ContextGatherer:
         
         focus_dirs = self.FOCUS_MAPPINGS.get(focus, []) if focus else []
         changed_files = self.get_changed_files() if changed_only else set()
+
+        if changed_only and not changed_files:
+            lines.append("`-- [INFO] No changed files detected")
+            return "\n".join(lines)
+
+        def has_changed_descendant(directory: Path) -> bool:
+            return any(directory == f or directory in f.parents for f in changed_files)
         
         def walk_dir(path: Path, prefix: str = "", depth: int = 0):
             if depth > 4:  # Limit depth
@@ -243,8 +262,11 @@ class ContextGatherer:
                         continue
                 
                 # Skip if changed_only and not changed
-                if changed_only and changed_files and item not in changed_files:
-                    continue
+                if changed_only:
+                    if item.is_file() and item not in changed_files:
+                        continue
+                    if item.is_dir() and not has_changed_descendant(item):
+                        continue
                 
                 is_last = i == len(items) - 1
                 current = "`-- " if is_last else "|-- "
@@ -406,7 +428,7 @@ class ContextGatherer:
             path = target_file.replace('\\', '/').lower()
             if any(token in path for token in ['test', 'spec', '__tests__', 'e2e']):
                 constraints.append("Test file: Do NOT change the testing library or framework")
-            if any(token in path for token in ['legacy', 'deprecated', 'old']):
+            if any(token in path for token in ['legacy', 'deprecated']) or re.search(r'\bold\b', path):
                 constraints.append("Legacy file: Do NOT refactor names or restructure existing code")
 
         if scope_function:
@@ -435,6 +457,8 @@ class ContextGatherer:
         """Get important file contents with optional tree-shaking and skeletonization."""
         files_data = []
         changed_files = self.get_changed_files() if changed_only else set()
+        if changed_only and not changed_files:
+            return []
         focus_dirs = self.FOCUS_MAPPINGS.get(focus, []) if focus else []
         git_aware_files = git_aware_files or set()
 
@@ -445,6 +469,8 @@ class ContextGatherer:
             if not path or not path.exists():
                 return
             if self._should_ignore(path):
+                return
+            if changed_only and path not in changed_files:
                 return
             if path in selected_set:
                 return
@@ -471,13 +497,13 @@ class ContextGatherer:
 
         if not tree_shake:
             # Priority 4: Changed files
-            if changed_only and changed_files:
+            if changed_only:
                 for file in list(changed_files)[:max_files]:
                     if file.suffix in self.CODE_EXTENSIONS:
                         add_file(file)
 
             # Priority 5: Important code files
-            if len(selected_files) < max_files:
+            if not changed_only and len(selected_files) < max_files:
                 import itertools
                 for ext in self.CODE_EXTENSIONS:
                     # Use itertools.islice to limit the search results
@@ -660,7 +686,9 @@ class ContextGatherer:
 
             if is_signature(line):
                 sig = line
-                if '{' in sig:
+                if '=>' in sig:
+                    sig = sig.split('=>', 1)[0].rstrip() + ' => ...;'
+                elif '{' in sig:
                     sig = sig.split('{')[0].rstrip() + ';'
                 elif sig.rstrip().endswith(')'):
                     sig = sig.rstrip() + ';'
@@ -690,8 +718,9 @@ class GeminiProvider(PromptProvider):
     def __init__(self, api_key: str, model_name: str = 'gemini-2.5-flash'):
         self.api_key = api_key
         self.model_name = model_name
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        self.genai = _get_genai_module()
+        self.genai.configure(api_key=api_key)
+        self.model = self.genai.GenerativeModel(model_name)
     
     def generate_prompt(self, system_prompt: str, user_request: str, context: str, temperature: float = 0.7) -> str:
         """Generate refined prompt using Gemini."""
@@ -706,7 +735,7 @@ Now generate a detailed prompt for an AI coding assistant that will help them im
         try:
             response = self.model.generate_content(
                 prompt,
-                generation_config=genai.types.GenerationConfig(temperature=temperature)
+                generation_config=self.genai.types.GenerationConfig(temperature=temperature)
             )
             return response.text
         except Exception as e:
@@ -1305,6 +1334,7 @@ def analyze_project(cwd: str = ".") -> str:
 def main():
     # Load environment variables from .env files
     load_environment()
+    provider_name = "GitHub Copilot" if '--use-github' in sys.argv else "Gemini"
     
     parser = argparse.ArgumentParser(
         description="""
@@ -2000,8 +2030,7 @@ Now provide the analysis following the exact 10-section structure above. Be deta
         print("="*60)
         sys.exit(0)
     
-    # Reuse provider_name computed above (fall back if missing)
-    provider_name = provider_name if 'provider_name' in locals() else ("GitHub Copilot" if args.use_github else "Gemini")
+    # Keep a stable provider label for spinner/output.
     spinner2 = Spinner(f"Generating refined prompt with {provider_name} ({args.model_name}, temperature={args.temperature}, {detail_level})")
     spinner2.start()
     

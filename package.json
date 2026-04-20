@@ -1,0 +1,59 @@
+{
+  "name": "contextify-vscode",
+  "displayName": "Contextify",
+  "description": "Enhance selected prompts in VS Code and hand them off to Copilot Chat.",
+  "version": "0.0.1",
+  "publisher": "contextify",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:contextify.enhancePrompt"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "contextify.enhancePrompt",
+        "title": "Enhance Prompt",
+        "category": "Contextify"
+      }
+    ],
+    "configuration": {
+      "title": "Contextify",
+      "properties": {
+        "contextify.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable used to run Contextify core enhancement bridge."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "contextify.enhancePrompt",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "contextify": "node out/cli/index.js"
+  },
+  "bin": {
+    "contextify": "out/cli/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.6.3",
+    "vscode": "^1.1.37"
+  }
+}

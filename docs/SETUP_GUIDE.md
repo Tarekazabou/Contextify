@@ -234,7 +234,7 @@ Contextify requires the following Python packages (automatically installed):
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| google-generativeai | >=0.3.0 | Google Gemini API |
+| google-genai | >=0.3.0 | Google Gemini API |
 | pyperclip | >=1.8.0 | Clipboard support |
 | pathspec | >=0.11.0 | .gitignore pattern matching |
 | python-dotenv | >=1.0.0 | .env file loading |
